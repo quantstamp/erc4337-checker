@@ -58,6 +58,7 @@ library ERC4337Checker {
         }
 
         // Validate the opcodes and storages for `validateUserOp()`
+        console2.log("Validate the opcodes and storages for `validateUserOp()`...", senderSteps.length);
         if (!validateSteps(senderSteps, userOp, entryPoint)) {
             return false;
         }
@@ -75,27 +76,34 @@ library ERC4337Checker {
         view
         returns (bool)
     {
-        if (!validateForbiddenOpcodes(senderSteps)) {
+        if (debugSteps.length == 0) {
+            return true; // nothing to verify
+        }
+
+
+        if (!validateForbiddenOpcodes(debugSteps)) {
             console2.log("Invalid Sender Opcodes");
             return false;
         }
-        if (!validateCall(senderSteps, address(entryPoint), true)) {
+        if (!validateCall(debugSteps, address(entryPoint), true)) {
             console2.log("Breaching Call Limitation");
             return false;
         }
-        if (!validateExtcodeMayNotAccessAddressWithoutCode(senderSteps)) {
+        if (!validateExtcodeMayNotAccessAddressWithoutCode(debugSteps)) {
             console2.log("EXTCODEHASH, EXTCODELENGTH, EXTCODECOPY may not access address with no code");
             return false;
         }
-        if (!validateCreate2(senderSteps, userOp)) {
+        if (!validateCreate2(debugSteps, userOp)) {
             console2.log("allow at most one CREATE2 opcode call only when op.initcode.length != 0");
             return false;
         }
 
-        if (!validateStorage(senderSteps, userOp, entryPoint)) {
+        if (!validateStorage(debugSteps, userOp, entryPoint)) {
             console2.log("Storage access rule breached");
             return false;
         }
+
+        return true;
     }
 
     function validateStorage(Vm.DebugStep[] memory debugSteps, UserOperation memory userOp, EntryPoint entryPoint)
