@@ -63,7 +63,8 @@ contract MockAccount is BaseAccount {
         } else if (attackType == AttackType.OUT_OF_GAS) {
             bytes memory encodedFunctionCall = abi.encodeWithSignature("consumeGas()", "");
             uint notEnoughGas = 10;
-            address(invalidActions).call{gas: notEnoughGas}(encodedFunctionCall);
+            (bool success, ) = address(invalidActions).call{gas: notEnoughGas}(encodedFunctionCall);
+            require(!success, "it should error out of gas");
         } else if (attackType == AttackType.ACCESS_EXTCODE_WITH_ADDRESS_NO_CODE) {
             address zeroAddr = address(0);
             bytes32 result;
