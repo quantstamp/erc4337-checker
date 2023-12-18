@@ -90,28 +90,3 @@ contract MockAccount is BaseAccount {
         return AttackType(uint256(bytes32(callData[4:])));
     }
 }
-
-
-
-//// check invalid opcode
-// if (block.timestamp < 1) {
-//     return 0;
-// }
-
-// check out of gas
-// bytes memory encodedFunctionCall = abi.encodeWithSignature("consumeGas()");
-// (bool success, ) = address(dummy).call{gas: 10}(encodedFunctionCall);
-// require(success, "failed GG");
-
-// // check accessing extcode with address without code
-// address zeroAddr = address(0);
-// bytes32 result;
-// assembly {
-//     result := extcodehash(zeroAddr)
-// }
-// console2.logBytes32(result);
-
-// check non-associated storage
-// dummy.touchSlot();
-
-// Default to Pass with returning zero
