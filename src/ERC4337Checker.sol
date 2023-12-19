@@ -55,6 +55,10 @@ library ERC4337Checker {
         return true;
     }
 
+    /**
+     * in any case, may not use storage used by another UserOp sender in the same bundle
+     * (that is, paymaster and factory are not allowed as senders)
+     */
     function validateBundleStorageNoRepeat(
         Vm.DebugStep[] memory debugSteps,
         UserOperation[] memory userOps
@@ -68,24 +72,14 @@ library ERC4337Checker {
 
         for (uint i = 0; i < userOps.length; i++) {
             UserOperation memory userOp = userOps[i];
-            (Vm.DebugStep[] memory senderSteps,
-            Vm.DebugStep[] memory paymasterSteps) = getRelativeDebugSteps(debugSteps, userOp);
-
-            // merge the steps to one
-            Vm.DebugStep[] memory allSteps = new Vm.DebugStep[](senderSteps.length + paymasterSteps.length);
-            for (uint j = 0; j < senderSteps.length; j++) {
-                allSteps[j] = senderSteps[j];
-            }
-            for (uint j = 0; j < paymasterSteps.length; j++) {
-                allSteps[j + senderSteps.length] = paymasterSteps[j];
-            }
+            (Vm.DebugStep[] memory senderSteps, ) = getRelativeDebugSteps(debugSteps, userOp);
 
             // a temporary slots, will merge with the main slots after checking
             // no duplicated storage access from this userOP.
-            StorageSlot[] memory tmpSlots = new StorageSlot[](allSteps.length);
+            StorageSlot[] memory tmpSlots = new StorageSlot[](senderSteps.length);
             uint tmpSlotsLen = 0;
-            for (uint j = 0; j < allSteps.length; j++) {
-                Vm.DebugStep memory debugStep = allSteps[j];
+            for (uint j = 0; j < senderSteps.length; j++) {
+                Vm.DebugStep memory debugStep = senderSteps[j];
                 uint8 opcode = debugStep.opcode;
                 if (opcode != 0x54 /*SLOAD*/ && opcode != 0x55 /*SSTORE*/ ) {
                     continue;
