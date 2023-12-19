@@ -10,15 +10,23 @@ import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {ERC4337Checker} from "../src/ERC4337Checker.sol";
 
 import {MockAccount} from "./mocks/MockAccount.sol";
+import {MockPaymaster} from "./mocks/MockPaymaster.sol";
 
 contract ERC4337CheckerTest is Test {
     EntryPoint public entryPoint;
     MockAccount public mockAccount;
+    MockPaymaster public mockPaymaster;
 
     function setUp() public {
         entryPoint = new EntryPoint();
+
         mockAccount = new MockAccount(entryPoint);
         vm.deal(address(mockAccount), 1 << 128); // give some funds to the mockAccount
+
+        mockPaymaster = new MockPaymaster(IEntryPoint(entryPoint));
+        vm.deal(address(mockPaymaster), 1 << 128); // give some funds to the mockAccount
+        entryPoint.depositTo{value: 1 ether}(address(mockPaymaster));
+        mockPaymaster.addStake{value: 2 ether}(1);
     }
 
     function test_validationPass() public {
@@ -33,6 +41,31 @@ contract ERC4337CheckerTest is Test {
             mockAccountAddr,
             encodedCallData
         );
+
+        vm.startDebugTraceRecording();
+
+        simulateValidation(userOp);
+
+        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
+
+        assertTrue(
+            ERC4337Checker.validateUserOp(steps, userOp, entryPoint)
+        );
+    }
+
+    function test_validationWithPaymasterPass() public {
+        address mockAccountAddr = address(mockAccount);
+
+        bytes memory encodedCallData = abi.encodeWithSelector(
+            MockAccount.execute.selector,
+            MockAccount.AttackType.NONE
+        );
+
+        UserOperation memory userOp = _getUnsignedOp(
+            mockAccountAddr,
+            encodedCallData
+        );
+        userOp.paymasterAndData = abi.encodePacked(mockPaymaster);
 
         vm.startDebugTraceRecording();
 
@@ -128,6 +161,38 @@ contract ERC4337CheckerTest is Test {
         UserOperation memory userOp = _getUnsignedOp(
             mockAccountAddr,
             encodedCallData
+        );
+
+        vm.startDebugTraceRecording();
+
+        simulateValidation(userOp);
+
+        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
+
+        assertFalse(
+            ERC4337Checker.validateUserOp(steps, userOp, entryPoint)
+        );
+    }
+
+    function test_accessPaymasterStorageSlotWithoutStake_shouldfail() public {
+        address mockAccountAddr = address(mockAccount);
+
+        MockPaymaster noStakePaymaster = new MockPaymaster(IEntryPoint(entryPoint));
+        vm.deal(address(noStakePaymaster), 1 << 128); // give some funds to the mockAccount
+        entryPoint.depositTo{value: 1 ether}(address(noStakePaymaster));
+
+        bytes memory encodedCallData = abi.encodeWithSelector(
+            MockAccount.execute.selector,
+            MockAccount.AttackType.NONE
+        );
+
+        UserOperation memory userOp = _getUnsignedOp(
+            mockAccountAddr,
+            encodedCallData
+        );
+        userOp.paymasterAndData = abi.encodePacked(
+            noStakePaymaster,
+            abi.encode(MockPaymaster.AttackType.UseStorage)
         );
 
         vm.startDebugTraceRecording();
