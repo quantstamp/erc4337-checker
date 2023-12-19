@@ -18,10 +18,10 @@ contract ERC4337CheckerTest is Test {
     function setUp() public {
         entryPoint = new EntryPoint();
         mockAccount = new MockAccount(entryPoint);
-        vm.deal(address(mockAccount), 1 << 128);
+        vm.deal(address(mockAccount), 1 << 128); // give some funds to the mockAccount
     }
 
-    function testValidationPass() public {
+    function test_validationPass() public {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
@@ -45,7 +45,7 @@ contract ERC4337CheckerTest is Test {
         );
     }
 
-    function testForbiddenOpCodeBlockTime() public {
+    function test_forbiddenOpCodeBlockTime() public {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
@@ -69,7 +69,7 @@ contract ERC4337CheckerTest is Test {
         );
     }
 
-    function testOutOfGas() public {
+    function test_outOfGas() public {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
@@ -93,7 +93,7 @@ contract ERC4337CheckerTest is Test {
         );
     }
 
-    function testAccessExtcodeWithContractNoCode() public {
+    function test_accessExtcodeWithContractNoCode() public {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
@@ -117,7 +117,7 @@ contract ERC4337CheckerTest is Test {
         );
     }
 
-    function testAccessUnassociatedStorageSlot() public {
+    function test_accessUnassociatedStorageSlot() public {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
@@ -138,6 +138,103 @@ contract ERC4337CheckerTest is Test {
 
         assertFalse(
             ERC4337Checker.validateUserOp(steps, userOp, entryPoint)
+        );
+    }
+
+    function test_validateBundleWithSingleUserOp() public {
+        address mockAccountAddr = address(mockAccount);
+
+        bytes memory encodedCallData = abi.encodeWithSelector(
+            MockAccount.execute.selector,
+            MockAccount.AttackType.NONE
+        );
+
+        UserOperation memory userOp = _getUnsignedOp(
+            mockAccountAddr,
+            encodedCallData
+        );
+
+        UserOperation[] memory userOps = new UserOperation[](1);
+        userOps[0] = userOp;
+
+        vm.startDebugTraceRecording();
+
+        for (uint i = 0 ; i < userOps.length ; i++) {
+            simulateValidation(userOps[i]);
+        }
+
+        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
+
+        assertTrue(
+            ERC4337Checker.validateBundle(steps, userOps, entryPoint)
+        );
+    }
+
+    function test_validateBundleWithMultipleUserOps() public {
+        address mockAccountAddr = address(mockAccount);
+
+        bytes memory encodedCallData = abi.encodeWithSelector(
+            MockAccount.execute.selector,
+            MockAccount.AttackType.NONE
+        );
+
+        UserOperation memory userOp1 = _getUnsignedOp(
+            mockAccountAddr,
+            encodedCallData
+        );
+
+        address mockAccount2Addr = address(new MockAccount(entryPoint));
+        vm.deal(address(mockAccount2Addr), 1 << 128);
+        UserOperation memory userOp2 = _getUnsignedOp(
+            mockAccount2Addr,
+            encodedCallData
+        );
+
+
+        UserOperation[] memory userOps = new UserOperation[](2);
+        userOps[0] = userOp1;
+        userOps[1] = userOp2;
+
+        vm.startDebugTraceRecording();
+
+        for (uint i = 0 ; i < userOps.length ; i++) {
+            simulateValidation(userOps[i]);
+        }
+
+        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
+
+        assertTrue(
+            ERC4337Checker.validateBundle(steps, userOps, entryPoint)
+        );
+    }
+
+    function test_duplicateStorageOnBundle() public {
+        address mockAccountAddr = address(mockAccount);
+
+        bytes memory encodedCallData = abi.encodeWithSelector(
+            MockAccount.execute.selector,
+            MockAccount.AttackType.NONE
+        );
+
+        UserOperation memory userOp = _getUnsignedOp(
+            mockAccountAddr,
+            encodedCallData
+        );
+
+        UserOperation[] memory userOps = new UserOperation[](2);
+        userOps[0] = userOp;
+        userOps[1] = userOp; // duplicated, so storage will conflict
+
+        vm.startDebugTraceRecording();
+
+        for (uint i = 0 ; i < userOps.length ; i++) {
+            simulateValidation(userOps[i]);
+        }
+
+        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
+
+        assertFalse(
+            ERC4337Checker.validateBundle(steps, userOps, entryPoint)
         );
     }
 

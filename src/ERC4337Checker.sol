@@ -8,54 +8,37 @@ import {IStakeManager} from "account-abstraction/interfaces/IStakeManager.sol";
 import "forge-std/console2.sol";
 
 library ERC4337Checker {
+    struct StorageSlot {
+        address account;
+        bytes32 slot;
+    }
+
+
+    function validateBundle(Vm.DebugStep[] memory debugSteps, UserOperation[] memory userOps, EntryPoint entryPoint)
+        internal
+        view
+        returns (bool)
+    {
+        for (uint i = 0; i < userOps.length; i++) {
+            if (!validateUserOp(debugSteps, userOps[i], entryPoint)) {
+                return false;
+            }
+        }
+
+        if (!validateBundleStorageNoRepeat(debugSteps, userOps)) {
+            return false;
+        }
+
+        return true;
+    }
+
     function validateUserOp(Vm.DebugStep[] memory debugSteps, UserOperation memory userOp, EntryPoint entryPoint)
         internal
         view
         returns (bool)
     {
-        Vm.DebugStep[] memory senderSteps = new Vm.DebugStep[](debugSteps.length);
-        uint128 senderStepsLen = 0;
-
-        address paymaster = getPaymasterAddr(userOp);
-        Vm.DebugStep[] memory paymasterSteps = new Vm.DebugStep[](debugSteps.length);
-        uint128 paymasterStepsLen = 0;
-
-        address currentAddr;
-        for (uint256 i = 0; i < debugSteps.length; i++) {
-            // We start analyze the forbidden opcodes from depth > 2
-            // Note that in forge test, the "test" itself wiill be depth 1. So the EntryPoint will be depth 2.
-            //
-            // Also, the `EntryPoint.simulateValidation()` function do have call back to
-            // the EntryPoint contract with `this.xxx()` so we will need to filter those as well.
-            // The code here group the opcodes by addresses, and then we only check the
-            // forbidden opcodes on those addresses we are interested.
-            if (debugSteps[i].depth == 2) {
-                uint8 opcode = debugSteps[i].opcode;
-                if (opcode == 0xF1 || opcode == 0xFA) {
-                    // CALL and STATICCALL
-                    currentAddr = address(uint160(debugSteps[i].stack[1]));
-                }
-
-                // ignore all opcodes on depth 1 and do not add to the mapping
-                continue;
-            }
-
-            if (debugSteps[i].depth > 2 && currentAddr == userOp.sender) {
-                senderSteps[senderStepsLen++] = debugSteps[i];
-            }
-
-            if (debugSteps[i].depth > 2 && currentAddr == paymaster) {
-                paymasterSteps[paymasterStepsLen++] = debugSteps[i];
-            }
-        }
-
-        // Reset the steps arrays to correct length
-        assembly {
-            mstore(senderSteps, senderStepsLen)
-        }
-        assembly {
-            mstore(paymasterSteps, paymasterStepsLen)
-        }
+        (Vm.DebugStep[] memory senderSteps,
+         Vm.DebugStep[] memory paymasterSteps) = getRelativeDebugSteps(debugSteps, userOp);
 
         // Validate the opcodes and storages for `validateUserOp()`
         console2.log("Validate the opcodes and storages for `validateUserOp()`...", senderSteps.length);
@@ -64,6 +47,7 @@ library ERC4337Checker {
         }
 
         // Validate the opcodes and storages for `validatePaymasterUserOp()`
+        console2.log("Validate the opcodes and storages for `validatePaymasterUserOp()`...", paymasterSteps.length);
         if (!validateSteps(paymasterSteps, userOp, entryPoint)) {
             return false;
         }
@@ -71,7 +55,74 @@ library ERC4337Checker {
         return true;
     }
 
-    function validateSteps(Vm.DebugStep[] memory debugSteps, UserOperation memory userOp, EntryPoint entryPoint)
+    function validateBundleStorageNoRepeat(
+        Vm.DebugStep[] memory debugSteps,
+        UserOperation[] memory userOps
+    )
+        private
+        pure
+        returns (bool)
+    {
+        StorageSlot[] memory slots = new StorageSlot[](debugSteps.length * userOps.length);
+        uint slotsLen = 0;
+
+        for (uint i = 0; i < userOps.length; i++) {
+            UserOperation memory userOp = userOps[i];
+            (Vm.DebugStep[] memory senderSteps,
+            Vm.DebugStep[] memory paymasterSteps) = getRelativeDebugSteps(debugSteps, userOp);
+
+            // merge the steps to one
+            Vm.DebugStep[] memory allSteps = new Vm.DebugStep[](senderSteps.length + paymasterSteps.length);
+            for (uint j = 0; j < senderSteps.length; j++) {
+                allSteps[j] = senderSteps[j];
+            }
+            for (uint j = 0; j < paymasterSteps.length; j++) {
+                allSteps[j + senderSteps.length] = paymasterSteps[j];
+            }
+
+            // a temporary slots, will merge with the main slots after checking
+            // no duplicated storage access from this userOP.
+            StorageSlot[] memory tmpSlots = new StorageSlot[](allSteps.length);
+            uint tmpSlotsLen = 0;
+            for (uint j = 0; j < allSteps.length; j++) {
+                Vm.DebugStep memory debugStep = allSteps[j];
+                uint8 opcode = debugStep.opcode;
+                if (opcode != 0x54 /*SLOAD*/ && opcode != 0x55 /*SSTORE*/ ) {
+                    continue;
+                }
+
+                address account = debugStep.contractAddr;
+                bytes32 slot = bytes32(debugStep.stack[0]);
+
+                for (uint k = 0; k < slotsLen; k++) {
+                    // check if there is duplicated storage
+                    if (slots[k].account == account && slots[k].slot == slot) {
+                        console2.log("userOp has duplicated storage access");
+                        return false;
+                    }
+                }
+
+                // if no duplication, put in tmpSlots
+                // and will merge it back to slots later
+                tmpSlots[tmpSlotsLen++] = StorageSlot({
+                    account: account,
+                    slot: slot
+                });
+            }
+
+            for (uint j = 0; j < tmpSlots.length; j++) {
+                slots[slotsLen++] = tmpSlots[j];
+            }
+        }
+
+        return true;
+    }
+
+    function validateSteps(
+        Vm.DebugStep[] memory debugSteps,
+        UserOperation memory userOp,
+        EntryPoint entryPoint
+    )
         private
         view
         returns (bool)
@@ -161,72 +212,19 @@ library ERC4337Checker {
                     break;
                 }
             }
-            if (!isAssociated) {
-                console2.log("non-associated slot detected on account: ", debugStep.contractAddr);
-                console2.logBytes32(key);
-                console2.log("sender address: ", userOp.sender);
-                return false;
+            if (isAssociated) {
+                continue;
             }
+
+            console2.log("non-associated slot detected on account: ", debugStep.contractAddr);
+            console2.logBytes32(key);
+            console2.log("sender address: ", userOp.sender);
+            return false;
         }
 
         return true;
     }
 
-    function findAddressAssociatedSlots(address addr, Vm.DebugStep[] memory debugSteps)
-        private
-        pure
-        returns (bytes32[] memory)
-    {
-        bytes32[] memory associatedSlots = new bytes32[](debugSteps.length * 128);
-        uint256 slotLen = 0;
-
-        for (uint256 i = 0; i < debugSteps.length; i++) {
-            uint8 opcode = debugSteps[i].opcode;
-
-            if (opcode != 0x20 /*SHA3*/ ) {
-                continue;
-            }
-
-            // find the inputs for the KECCAK256
-            bytes memory input = new bytes(debugSteps[i].memoryData.length);
-            for (uint256 j = 0; j < debugSteps[i].memoryData.length; j++) {
-                input[j] = bytes1(debugSteps[i].memoryData[j]);
-            }
-
-            address inputStartAddr = address(uint160(uint256(bytes32(input))));
-            if (input.length >= 20 && inputStartAddr == addr) {
-                // Slots of type keccak256(A || X) + n, n in range [0, 128]
-                for (uint256 j = 0; j < 128; j++) {
-                    unchecked {
-                        associatedSlots[slotLen++] = bytes32(uint256(keccak256(input)) + j);
-                    }
-                }
-            }
-        }
-
-        // Reset to correct length
-        assembly {
-            mstore(associatedSlots, slotLen)
-        }
-
-        return associatedSlots;
-    }
-
-    function getStakeInfo(address addr, EntryPoint entryPoint) internal view returns (IStakeManager.StakeInfo memory) {
-        IStakeManager.DepositInfo memory depositInfo = entryPoint.getDepositInfo(addr);
-
-        return IStakeManager.StakeInfo({stake: depositInfo.stake, unstakeDelaySec: depositInfo.unstakeDelaySec});
-    }
-
-    function getFactoryAddr(UserOperation memory userOp) private pure returns (address) {
-        bytes memory initCode = userOp.initCode;
-        return initCode.length >= 20 ? address(bytes20(initCode)) : address(0);
-    }
-
-    function getPaymasterAddr(UserOperation memory userOp) private pure returns (address) {
-        bytes memory pData = userOp.paymasterAndData;
-        return pData.length >= 20 ? address(bytes20(pData)) : address(0);
-    }
 
     /**
      * May not invokes any forbidden opcodes
@@ -439,5 +437,114 @@ library ERC4337Checker {
         }
 
         return size == 0;
+    }
+
+
+    function getRelativeDebugSteps(
+        Vm.DebugStep[] memory debugSteps,
+        UserOperation memory userOp
+    )   private
+        pure
+        returns (Vm.DebugStep[] memory, Vm.DebugStep[] memory)
+    {
+        Vm.DebugStep[] memory senderSteps = new Vm.DebugStep[](debugSteps.length);
+        uint128 senderStepsLen = 0;
+
+        address paymaster = getPaymasterAddr(userOp);
+        Vm.DebugStep[] memory paymasterSteps = new Vm.DebugStep[](debugSteps.length);
+        uint128 paymasterStepsLen = 0;
+
+        address currentAddr;
+        for (uint256 i = 0; i < debugSteps.length; i++) {
+            // We start analyze the forbidden opcodes from depth > 2
+            // Note that in forge test, the "test" itself wiill be depth 1. So the EntryPoint will be depth 2.
+            //
+            // The current implementation assumes that there is only one call to the account (sender) address and
+            // only one call to the paymaster during the simuate validation call (depth == 2).
+            if (debugSteps[i].depth == 2) {
+                uint8 opcode = debugSteps[i].opcode;
+                if (opcode == 0xF1 || opcode == 0xFA) {
+                    // CALL and STATICCALL
+                    currentAddr = address(uint160(debugSteps[i].stack[1]));
+                }
+
+                // ignore all opcodes on depth 1 and do not add to the mapping
+                continue;
+            }
+
+            if (debugSteps[i].depth > 2 && currentAddr == userOp.sender) {
+                senderSteps[senderStepsLen++] = debugSteps[i];
+            }
+
+            if (debugSteps[i].depth > 2 && currentAddr == paymaster) {
+                paymasterSteps[paymasterStepsLen++] = debugSteps[i];
+            }
+        }
+
+        // Reset the steps arrays to correct length
+        assembly {
+            mstore(senderSteps, senderStepsLen)
+        }
+        assembly {
+            mstore(paymasterSteps, paymasterStepsLen)
+        }
+
+        return (senderSteps, paymasterSteps);
+    }
+
+    function findAddressAssociatedSlots(address addr, Vm.DebugStep[] memory debugSteps)
+        private
+        pure
+        returns (bytes32[] memory)
+    {
+        bytes32[] memory associatedSlots = new bytes32[](debugSteps.length * 128);
+        uint256 slotLen = 0;
+
+        for (uint256 i = 0; i < debugSteps.length; i++) {
+            uint8 opcode = debugSteps[i].opcode;
+
+            if (opcode != 0x20 /*SHA3*/ ) {
+                continue;
+            }
+
+            // find the inputs for the KECCAK256
+            bytes memory input = new bytes(debugSteps[i].memoryData.length);
+            for (uint256 j = 0; j < debugSteps[i].memoryData.length; j++) {
+                input[j] = bytes1(debugSteps[i].memoryData[j]);
+            }
+
+            address inputStartAddr = address(uint160(uint256(bytes32(input))));
+            if (input.length >= 20 && inputStartAddr == addr) {
+                // Slots of type keccak256(A || X) + n, n in range [0, 128]
+                for (uint256 j = 0; j < 128; j++) {
+                    unchecked {
+                        associatedSlots[slotLen++] = bytes32(uint256(keccak256(input)) + j);
+                    }
+                }
+            }
+        }
+
+        // Reset to correct length
+        assembly {
+            mstore(associatedSlots, slotLen)
+        }
+
+        return associatedSlots;
+    }
+
+    function getStakeInfo(address addr, EntryPoint entryPoint) internal view returns (IStakeManager.StakeInfo memory) {
+        IStakeManager.DepositInfo memory depositInfo = entryPoint.getDepositInfo(addr);
+
+        return IStakeManager.StakeInfo({stake: depositInfo.stake, unstakeDelaySec: depositInfo.unstakeDelaySec});
+    }
+
+    function getFactoryAddr(UserOperation memory userOp) private pure returns (address) {
+        bytes memory initCode = userOp.initCode;
+        return initCode.length >= 20 ? address(bytes20(initCode)) : address(0);
+    }
+
+    function getPaymasterAddr(UserOperation memory userOp) private pure returns (address) {
+        bytes memory pData = userOp.paymasterAndData;
+        return pData.length >= 20 ? address(bytes20(pData)) : address(0);
     }
 }
