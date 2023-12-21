@@ -6,7 +6,7 @@ This is a library tool and intended to be use as a dependency and import to use 
 The tool is only compatible with the reference implementation of account abstraction: https://github.com/eth-infinitism/account-abstraction/. Currently, this tool is tested with the `v0.6.0` version of the `account-abstraction` repo.
 
 To use this tool, you will need to use a specific forked version of forge.
-1. Git clone from the [forked repo with tag v0.1.0-alpha-4337-tool](https://github.com/boolafish/foundry/releases/tag/v0.1.0-alpha-4337-tool).
+1. Git clone from the [forked repo with tag v0.1.0-alpha-4337-tool](https://github.com/quantstamp/foundry/releases/tag/v0.1.0-alpha-4337-tool).
 2. Build the local from the fork:
 ```sh
 # install Forge
@@ -14,18 +14,18 @@ cargo install --path ./crates/forge --profile local --force --locked
 ```
 
 
-Also, you will need to replace the `forge-std` dependency to the following fork: [forked repo with tag v0.1.0-alpha-4337-tool](https://github.com/boolafish/forge-std/releases/tag/v0.1.0-alpha-4337-tool) in your target repository to use this library.
+Also, you will need to replace the `forge-std` dependency to the following fork: [forked repo with tag v0.1.0-alpha-4337-tool](https://github.com/quantstamp/forge-std/releases/tag/v0.1.0-alpha-4337-tool) in your target repository to use this library.
 
 You can run the following commands to replace the `forge-std`:
 ```sh
 forge remove foundry-rs/forge-std
-forge install boolafish/forge-std@v0.1.0-alpha-4337-tool
+forge install quantstamp/forge-std@v0.1.0-alpha-4337-tool
 ```
 
 
 After the forked `forge` and `forge-std` is setup, you can add this repository to your targe repo:
 ```sh
-forge install boolafish/erc4337-checker
+forge install quantstamp/erc4337-checker
 ```
 
 Now, you can start writing tests leveraging this ERC4337 checker! The tool support validate on both userOp or bundle level.
