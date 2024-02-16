@@ -42,14 +42,8 @@ contract ERC4337CheckerTest is Test {
             encodedCallData
         );
 
-        vm.startDebugTraceRecording();
-
-        simulateValidation(userOp);
-
-        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
-
         assertTrue(
-            ERC4337Checker.validateUserOp(steps, userOp, entryPoint)
+            ERC4337Checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
         );
     }
 
@@ -67,14 +61,8 @@ contract ERC4337CheckerTest is Test {
         );
         userOp.paymasterAndData = abi.encodePacked(mockPaymaster);
 
-        vm.startDebugTraceRecording();
-
-        simulateValidation(userOp);
-
-        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
-
         assertTrue(
-            ERC4337Checker.validateUserOp(steps, userOp, entryPoint)
+            ERC4337Checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
         );
     }
 
@@ -91,14 +79,8 @@ contract ERC4337CheckerTest is Test {
             encodedCallData
         );
 
-        vm.startDebugTraceRecording();
-
-        simulateValidation(userOp);
-
-        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
-
         assertFalse(
-            ERC4337Checker.validateUserOp(steps, userOp, entryPoint)
+            ERC4337Checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
         );
     }
 
@@ -115,14 +97,8 @@ contract ERC4337CheckerTest is Test {
             encodedCallData
         );
 
-        vm.startDebugTraceRecording();
-
-        simulateValidation(userOp);
-
-        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
-
         assertFalse(
-            ERC4337Checker.validateUserOp(steps, userOp, entryPoint)
+            ERC4337Checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
         );
     }
 
@@ -139,14 +115,8 @@ contract ERC4337CheckerTest is Test {
             encodedCallData
         );
 
-        vm.startDebugTraceRecording();
-
-        simulateValidation(userOp);
-
-        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
-
         assertFalse(
-            ERC4337Checker.validateUserOp(steps, userOp, entryPoint)
+            ERC4337Checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
         );
     }
 
@@ -163,14 +133,8 @@ contract ERC4337CheckerTest is Test {
             encodedCallData
         );
 
-        vm.startDebugTraceRecording();
-
-        simulateValidation(userOp);
-
-        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
-
         assertFalse(
-            ERC4337Checker.validateUserOp(steps, userOp, entryPoint)
+            ERC4337Checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
         );
     }
 
@@ -195,14 +159,8 @@ contract ERC4337CheckerTest is Test {
             abi.encode(MockPaymaster.AttackType.UseStorage)
         );
 
-        vm.startDebugTraceRecording();
-
-        simulateValidation(userOp);
-
-        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
-
         assertFalse(
-            ERC4337Checker.validateUserOp(steps, userOp, entryPoint)
+            ERC4337Checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
         );
     }
 
@@ -222,16 +180,8 @@ contract ERC4337CheckerTest is Test {
         UserOperation[] memory userOps = new UserOperation[](1);
         userOps[0] = userOp;
 
-        vm.startDebugTraceRecording();
-
-        for (uint i = 0 ; i < userOps.length ; i++) {
-            simulateValidation(userOps[i]);
-        }
-
-        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
-
         assertTrue(
-            ERC4337Checker.validateBundle(steps, userOps, entryPoint)
+            ERC4337Checker.simulateAndVerifyBundle(vm, userOps, entryPoint)
         );
     }
 
@@ -260,16 +210,8 @@ contract ERC4337CheckerTest is Test {
         userOps[0] = userOp1;
         userOps[1] = userOp2;
 
-        vm.startDebugTraceRecording();
-
-        for (uint i = 0 ; i < userOps.length ; i++) {
-            simulateValidation(userOps[i]);
-        }
-
-        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
-
         assertTrue(
-            ERC4337Checker.validateBundle(steps, userOps, entryPoint)
+            ERC4337Checker.simulateAndVerifyBundle(vm, userOps, entryPoint)
         );
     }
 
@@ -290,32 +232,9 @@ contract ERC4337CheckerTest is Test {
         userOps[0] = userOp;
         userOps[1] = userOp; // duplicated, so storage will conflict
 
-        vm.startDebugTraceRecording();
-
-        for (uint i = 0 ; i < userOps.length ; i++) {
-            simulateValidation(userOps[i]);
-        }
-
-        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
-
         assertFalse(
-            ERC4337Checker.validateBundle(steps, userOps, entryPoint)
+            ERC4337Checker.simulateAndVerifyBundle(vm, userOps, entryPoint)
         );
-    }
-
-
-    function simulateValidation(UserOperation memory userOp) private {
-        try entryPoint.simulateValidation(userOp) {
-            // the simulateValidation function will always revert.
-            // in this test, we do not really care if it is revert in an expected output or not.
-        } catch (bytes memory reason) {
-            // if not fail with ValidationResult error, it is likely to be something unexpected.
-            if (reason.length < 4 || bytes4(reason) != IEntryPoint.ValidationResult.selector) {
-                revert(string(abi.encodePacked(
-                    "simulateValidation call failed unexpectedly: ", reason
-                )));
-            }
-        }
     }
 
     function _getUnsignedOp(address target, bytes memory innerCallData) private pure returns (UserOperation memory) {

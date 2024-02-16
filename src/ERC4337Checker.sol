@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import {Vm} from "forge-std/Vm.sol";
 import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {EntryPoint} from "account-abstraction/core/EntryPoint.sol";
+import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
 import {IStakeManager} from "account-abstraction/interfaces/IStakeManager.sol";
 import "forge-std/console2.sol";
 
@@ -11,6 +12,54 @@ library ERC4337Checker {
     struct StorageSlot {
         address account;
         bytes32 slot;
+    }
+
+    function simulateAndVerifyUserOp(Vm vm, UserOperation memory userOp, EntryPoint entryPoint) internal returns (bool) {
+        // this starts the recording of the debug trace that will later be analyzed
+        vm.startDebugTraceRecording();
+
+        try entryPoint.simulateValidation(userOp) {
+            // the simulateValidation function will always revert.
+            // in this test, we do not really care if it is revert in an expected output or not.
+        } catch (bytes memory reason) {
+            // if not fail with ValidationResult error, it is likely to be something unexpected.
+            if (reason.length < 4 || bytes4(reason) != IEntryPoint.ValidationResult.selector) {
+                revert(string(abi.encodePacked(
+                    "simulateValidation call failed unexpectedly: ", reason
+                )));
+            }
+        }
+
+        // collect the recorded opcodes, stack and memory inputs.
+        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
+
+        // verify that the user operation fulfills the spec's limitation
+        return validateUserOp(steps, userOp, entryPoint);
+    }
+
+    function simulateAndVerifyBundle(Vm vm, UserOperation[] memory userOps, EntryPoint entryPoint) internal returns (bool) {
+        // this starts the recording of the debug trace that will later be analyzed
+        vm.startDebugTraceRecording();
+
+        for (uint i = 0 ; i < userOps.length; ++i) {
+            try entryPoint.simulateValidation(userOps[i]) {
+                // the simulateValidation function will always revert.
+                // in this test, we do not really care if it is revert in an expected output or not.
+            } catch (bytes memory reason) {
+                // if not fail with ValidationResult error, it is likely to be something unexpected.
+                if (reason.length < 4 || bytes4(reason) != IEntryPoint.ValidationResult.selector) {
+                    revert(string(abi.encodePacked(
+                        "simulateValidation call failed unexpectedly: ", reason
+                    )));
+                }
+            }
+        }
+
+        // collect the recorded opcodes, stack and memory inputs.
+        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
+
+        // verify that the user operation fulfills the spec's limitation
+        return validateBundle(steps, userOps, entryPoint);
     }
 
 
