@@ -6,15 +6,31 @@ import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
 import {EntryPoint} from "account-abstraction/core/EntryPoint.sol";
 import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
 import {IStakeManager} from "account-abstraction/interfaces/IStakeManager.sol";
+import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
 import "forge-std/console2.sol";
 
-library ERC4337Checker {
+contract ERC4337Checker {
     struct StorageSlot {
         address account;
         bytes32 slot;
     }
 
-    function simulateAndVerifyUserOp(Vm vm, UserOperation memory userOp, EntryPoint entryPoint) internal returns (bool) {
+    struct FailureLog {
+        string errorMsg;
+        address contractAddr;
+    }
+
+    FailureLog[] public failureLogs;
+
+    function printFailureLogs() public {
+        console2.log("--------ERC4337Checker Failure Logs-----------");
+        for (uint i = 0; i < failureLogs.length; i++) {
+            console2.log("Failed in contract address", failureLogs[i].contractAddr);
+            console2.log(failureLogs[i].errorMsg);
+        }
+    }
+
+    function simulateAndVerifyUserOp(Vm vm, UserOperation memory userOp, EntryPoint entryPoint) external returns (bool) {
         // this starts the recording of the debug trace that will later be analyzed
         vm.startDebugTraceRecording();
 
@@ -37,7 +53,7 @@ library ERC4337Checker {
         return validateUserOp(steps, userOp, entryPoint);
     }
 
-    function simulateAndVerifyBundle(Vm vm, UserOperation[] memory userOps, EntryPoint entryPoint) internal returns (bool) {
+    function simulateAndVerifyBundle(Vm vm, UserOperation[] memory userOps, EntryPoint entryPoint) external returns (bool) {
         // this starts the recording of the debug trace that will later be analyzed
         vm.startDebugTraceRecording();
 
@@ -64,44 +80,45 @@ library ERC4337Checker {
 
 
     function validateBundle(Vm.DebugStep[] memory debugSteps, UserOperation[] memory userOps, EntryPoint entryPoint)
-        internal
-        view
+        public
         returns (bool)
     {
+        bool result = true;
         for (uint i = 0; i < userOps.length; i++) {
             if (!validateUserOp(debugSteps, userOps[i], entryPoint)) {
-                return false;
+                result = false;
             }
         }
 
-        if (!validateBundleStorageNoRepeat(debugSteps, userOps)) {
-            return false;
+        if (!validateBundleStorageNoRepeat(debugSteps, userOps, entryPoint)) {
+            result = false;
         }
 
-        return true;
+        return result;
     }
 
     function validateUserOp(Vm.DebugStep[] memory debugSteps, UserOperation memory userOp, EntryPoint entryPoint)
-        internal
-        view
+        public
         returns (bool)
     {
         (Vm.DebugStep[] memory senderSteps,
-         Vm.DebugStep[] memory paymasterSteps) = getRelativeDebugSteps(debugSteps, userOp);
+         Vm.DebugStep[] memory paymasterSteps) = getRelativeDebugSteps(debugSteps, userOp, entryPoint);
+
+        bool result = true;
 
         // Validate the opcodes and storages for `validateUserOp()`
         console2.log("Validate the opcodes and storages for `validateUserOp()`...", senderSteps.length);
         if (!validateSteps(senderSteps, userOp, entryPoint)) {
-            return false;
+            result = false;
         }
 
         // Validate the opcodes and storages for `validatePaymasterUserOp()`
         console2.log("Validate the opcodes and storages for `validatePaymasterUserOp()`...", paymasterSteps.length);
         if (!validateSteps(paymasterSteps, userOp, entryPoint)) {
-            return false;
+            result = false;
         }
 
-        return true;
+        return result;
     }
 
     /**
@@ -110,7 +127,8 @@ library ERC4337Checker {
      */
     function validateBundleStorageNoRepeat(
         Vm.DebugStep[] memory debugSteps,
-        UserOperation[] memory userOps
+        UserOperation[] memory userOps,
+        EntryPoint entryPoint
     )
         private
         pure
@@ -118,10 +136,11 @@ library ERC4337Checker {
     {
         StorageSlot[] memory slots = new StorageSlot[](debugSteps.length * userOps.length);
         uint slotsLen = 0;
+        bool result = true;
 
         for (uint i = 0; i < userOps.length; i++) {
             UserOperation memory userOp = userOps[i];
-            (Vm.DebugStep[] memory senderSteps, ) = getRelativeDebugSteps(debugSteps, userOp);
+            (Vm.DebugStep[] memory senderSteps, ) = getRelativeDebugSteps(debugSteps, userOp, entryPoint);
 
             // a temporary slots, will merge with the main slots after checking
             // no duplicated storage access from this userOP.
@@ -136,21 +155,25 @@ library ERC4337Checker {
 
                 address account = debugStep.contractAddr;
                 bytes32 slot = bytes32(debugStep.stack[0]);
+                bool isDuplicated = false;
 
                 for (uint k = 0; k < slotsLen; k++) {
                     // check if there is duplicated storage
                     if (slots[k].account == account && slots[k].slot == slot) {
                         console2.log("userOp has duplicated storage access");
-                        return false;
+                        isDuplicated = true;
+                        result = false;
                     }
                 }
 
-                // if no duplication, put in tmpSlots
-                // and will merge it back to slots later
-                tmpSlots[tmpSlotsLen++] = StorageSlot({
-                    account: account,
-                    slot: slot
-                });
+                if (!isDuplicated) {
+                    // if no duplication, put in tmpSlots
+                    // and will merge it back to slots later
+                    tmpSlots[tmpSlotsLen++] = StorageSlot({
+                        account: account,
+                        slot: slot
+                    });
+                }
             }
 
             for (uint j = 0; j < tmpSlots.length; j++) {
@@ -158,7 +181,7 @@ library ERC4337Checker {
             }
         }
 
-        return true;
+        return result;
     }
 
     function validateSteps(
@@ -167,42 +190,40 @@ library ERC4337Checker {
         EntryPoint entryPoint
     )
         private
-        view
         returns (bool)
     {
         if (debugSteps.length == 0) {
             return true; // nothing to verify
         }
 
-
+        bool result = true;
         if (!validateForbiddenOpcodes(debugSteps)) {
             console2.log("Invalid Sender Opcodes");
-            return false;
+            result = false;
         }
         if (!validateCall(debugSteps, address(entryPoint), true)) {
             console2.log("Breaching Call Limitation");
-            return false;
+            result = false;
         }
         if (!validateExtcodeMayNotAccessAddressWithoutCode(debugSteps)) {
             console2.log("EXTCODEHASH, EXTCODELENGTH, EXTCODECOPY may not access address with no code");
-            return false;
+            result = false;
         }
         if (!validateCreate2(debugSteps, userOp)) {
             console2.log("allow at most one CREATE2 opcode call only when op.initcode.length != 0");
-            return false;
+            result = false;
         }
 
         if (!validateStorage(debugSteps, userOp, entryPoint)) {
             console2.log("Storage access rule breached");
-            return false;
+            result = false;
         }
 
-        return true;
+        return result;
     }
 
     function validateStorage(Vm.DebugStep[] memory debugSteps, UserOperation memory userOp, EntryPoint entryPoint)
         private
-        view
         returns (bool)
     {
         address factory = getFactoryAddr(userOp);
@@ -212,6 +233,8 @@ library ERC4337Checker {
         IStakeManager.StakeInfo memory paymasterStakeInfo = getStakeInfo(paymaster, entryPoint);
 
         bytes32[] memory associatedSlots = findAddressAssociatedSlots(userOp.sender, debugSteps);
+
+        bool result = true;
 
         for (uint256 i = 0; i < debugSteps.length; i++) {
             Vm.DebugStep memory debugStep = debugSteps[i];
@@ -259,13 +282,24 @@ library ERC4337Checker {
                 continue;
             }
 
-            console2.log("non-associated slot detected on account: ", debugStep.contractAddr);
-            console2.logBytes32(key);
-            console2.log("sender address: ", userOp.sender);
-            return false;
+            // console2.log("non-associated slot detected on account: ", debugStep.contractAddr);
+            // console2.logBytes32(key);
+            // console2.log("sender address: ", userOp.sender);
+
+            string memory senderAddr = Strings.toHexString(userOp.sender);
+
+            failureLogs.push(FailureLog({
+                errorMsg: string(abi.encodePacked(
+                    "non-associated slot: key: [", Strings.toHexString(uint256(key)),
+                    "], sender address: [", senderAddr, "]"
+                )),
+                contractAddr: debugStep.contractAddr
+            }));
+
+            result = false;
         }
 
-        return true;
+        return result;
     }
 
 
@@ -273,28 +307,34 @@ library ERC4337Checker {
      * May not invokes any forbidden opcodes
      * Must not use GAS opcode (unless followed immediately by one of { CALL, DELEGATECALL, CALLCODE, STATICCALL }.)
      */
-    function validateForbiddenOpcodes(Vm.DebugStep[] memory debugSteps) private pure returns (bool) {
+    function validateForbiddenOpcodes(Vm.DebugStep[] memory debugSteps) private returns (bool) {
+        bool result = true;
         for (uint256 i = 0; i < debugSteps.length; i++) {
             uint8 opcode = debugSteps[i].opcode;
             if (isForbiddenOpcode(opcode)) {
                 // exception case for GAS opcode
                 if (opcode == 0x5A && i < debugSteps.length - 1) {
                     if (!isValidNextOpcodeOfGas(debugSteps[i + 1].opcode)) {
-                        console2.log(
-                            "fobidden GAS op-code, next opcode: ",
-                            debugSteps[i + 1].opcode,
-                            "depth: ",
-                            debugSteps[i].depth
-                        );
-                        return false;
+                        failureLogs.push(FailureLog({
+                            errorMsg: string(abi.encodePacked(
+                                "forbidden GAS op-code usage, next opcode after GAS: [", Strings.toHexString(debugSteps[i + 1].opcode), "]"
+                            )),
+                            contractAddr: debugSteps[i].contractAddr
+                        }));
+                        result = false;
                     }
                 } else {
-                    console2.log("fobidden op-code: ", opcode, "depth: ", debugSteps[i].depth);
-                    return false;
+                    failureLogs.push(FailureLog({
+                        errorMsg: string(abi.encodePacked(
+                            "forbidden op-code usage. opcode: [", Strings.toHexString(opcode), "]"
+                        )),
+                        contractAddr: debugSteps[i].contractAddr
+                    }));
+                    result = false;
                 }
             }
         }
-        return true;
+        return result;
     }
 
     /**
@@ -306,17 +346,20 @@ library ERC4337Checker {
      */
     function validateCall(Vm.DebugStep[] memory debugSteps, address entryPoint, bool isFromAccount)
         private
-        view
         returns (bool)
     {
+        bool result = true;
         for (uint256 i = 0; i < debugSteps.length; i++) {
             // the current mechanism will only record the instruction result on the last opcode
             // that failed. It will not go all the way back to the call related opcode so
             // need to call this before filtering
             if (isCallOutOfGas(debugSteps[i])) {
-                // TODO: checked, not working as expected :(
                 console2.log("must not revert with out-of-gas");
-                return false;
+                failureLogs.push(FailureLog({
+                    errorMsg: "CALL must not revert with out-of-gas",
+                    contractAddr: debugSteps[i].contractAddr
+                }));
+                result = false;
             }
 
             // we only care about OPCODES related to calls, so filter out those unrelated.
@@ -329,26 +372,45 @@ library ERC4337Checker {
 
             if (isCallWithValue(debugSteps[i], entryPoint, isFromAccount)) {
                 console2.log("must not use value (except from account to the entrypoint)");
-                return false;
+                failureLogs.push(FailureLog({
+                    errorMsg: "CALL must not use value (except from account to the entrypoint)",
+                    contractAddr: debugSteps[i].contractAddr
+                }));
+                result = false;
             }
             if (!isPrecompile(debugSteps[i]) && isCallWithEmptyCode(debugSteps[i])) {
                 address dest = address(uint160(debugSteps[i].stack[1]));
                 console2.log("destination address must have code or be precompile: ", dest, op);
-                return false;
+
+                failureLogs.push(FailureLog({
+                    errorMsg: string(abi.encodePacked(
+                        "CALL destination address must have code or be precompile. ",
+                        "Dest: [", Strings.toHexString(dest), "]", "OP: [", Strings.toHexString(op), "]"
+                    )),
+                    contractAddr: debugSteps[i].contractAddr
+                }));
+
+                result = false;
             }
             if (isCallToEntryPoint(debugSteps[i], entryPoint)) {
                 console2.log("cannot call EntryPoint methods, except depositTo");
-                return false;
+
+                failureLogs.push(FailureLog({
+                    errorMsg: "cannot call EntryPoint methods, except depositTo",
+                    contractAddr: debugSteps[i].contractAddr
+                }));
+
+                result = false;
             }
         }
-        return true;
+        return result;
     }
 
     function validateExtcodeMayNotAccessAddressWithoutCode(Vm.DebugStep[] memory debugSteps)
         private
-        view
         returns (bool)
     {
+        bool result = true;
         for (uint256 i = 0; i < debugSteps.length; i++) {
             uint8 op = debugSteps[i].opcode;
             // EXTCODEHASH, EXTCODELENGTH, EXTCODECOPY
@@ -358,32 +420,48 @@ library ERC4337Checker {
 
             address addr = address(uint160(debugSteps[i].stack[0]));
             if (isEmptyCodeAddress(addr)) {
-                return false;
+                failureLogs.push(FailureLog({
+                    errorMsg: string(abi.encodePacked(
+                        "Access address with no code. "
+                        "EXT OP: [", Strings.toHexString(op), "]"
+                    )),
+
+                    contractAddr: debugSteps[i].contractAddr
+                }));
+                result = false;
             }
         }
-        return true;
+        return result;
     }
 
     function validateCreate2(Vm.DebugStep[] memory debugSteps, UserOperation memory userOp)
         private
-        pure
         returns (bool)
     {
         uint256 create2Cnt = 0;
+        bool result = true;
         for (uint256 i = 0; i < debugSteps.length; i++) {
             if (debugSteps[i].opcode == 0xF5 /*CREATE2*/ ) {
                 create2Cnt += 1;
             }
 
             if (create2Cnt == 1 && userOp.initCode.length == 0) {
-                return false;
+                failureLogs.push(FailureLog({
+                    errorMsg: "Has CREATE2 opcode call but op.initcode.length == 0",
+                    contractAddr: debugSteps[i].contractAddr
+                }));
+                result = false;
             }
 
             if (create2Cnt > 1) {
-                return false;
+                failureLogs.push(FailureLog({
+                    errorMsg: "Allow at most one CREATE2 opcode call only when op.initcode.length != 0",
+                    contractAddr: debugSteps[i].contractAddr
+                }));
+                result = false;
             }
         }
-        return true;
+        return result;
     }
 
     function isForbiddenOpcode(uint8 opcode) private pure returns (bool) {
@@ -485,7 +563,8 @@ library ERC4337Checker {
 
     function getRelativeDebugSteps(
         Vm.DebugStep[] memory debugSteps,
-        UserOperation memory userOp
+        UserOperation memory userOp,
+        EntryPoint entryPoint
     )   private
         pure
         returns (Vm.DebugStep[] memory, Vm.DebugStep[] memory)
@@ -497,14 +576,27 @@ library ERC4337Checker {
         Vm.DebugStep[] memory paymasterSteps = new Vm.DebugStep[](debugSteps.length);
         uint128 paymasterStepsLen = 0;
 
+
+        // We only cares the steps from Entrypoint -> validateUserOp() and validatePaymasterUserOp()
+        // The implementation here filter out those steps not in these call by checking the depth and the contract being called.
+        // The `baseDepth` here uses the first "depth" observed when calling the entrypoint.
+        uint256 baseDepth = 0;
+        for (uint256 i = 0; i < debugSteps.length; i++) {
+            if (debugSteps[i].contractAddr == address(entryPoint)) {
+                baseDepth = debugSteps[i].depth;
+                break;
+            }
+        }
+        require(baseDepth != 0, "does not call the entrypoint"); // sanity check
+
         address currentAddr;
         for (uint256 i = 0; i < debugSteps.length; i++) {
-            // We start analyze the forbidden opcodes from depth > 2
-            // Note that in forge test, the "test" itself wiill be depth 1. So the EntryPoint will be depth 2.
+            // Filter out those steps where we do not need to apply the ERC4337 restriction.
             //
             // The current implementation assumes that there is only one call to the account (sender) address and
-            // only one call to the paymaster during the simuate validation call (depth == 2).
-            if (debugSteps[i].depth == 2) {
+            // only one call to the paymaster during the simuate validation call (depth == 2), which matches the
+            // current reference entrypoint contract impleemntation.
+            if (debugSteps[i].depth == baseDepth && debugSteps[i].contractAddr == address(entryPoint)) {
                 uint8 opcode = debugSteps[i].opcode;
                 if (opcode == 0xF1 || opcode == 0xFA) {
                     // CALL and STATICCALL
@@ -515,11 +607,11 @@ library ERC4337Checker {
                 continue;
             }
 
-            if (debugSteps[i].depth > 2 && currentAddr == userOp.sender) {
+            if (debugSteps[i].depth > baseDepth && currentAddr == userOp.sender) {
                 senderSteps[senderStepsLen++] = debugSteps[i];
             }
 
-            if (debugSteps[i].depth > 2 && currentAddr == paymaster) {
+            if (debugSteps[i].depth > baseDepth && currentAddr == paymaster) {
                 paymasterSteps[paymasterStepsLen++] = debugSteps[i];
             }
         }

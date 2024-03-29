@@ -16,6 +16,7 @@ contract ERC4337CheckerTest is Test {
     EntryPoint public entryPoint;
     MockAccount public mockAccount;
     MockPaymaster public mockPaymaster;
+    ERC4337Checker public checker;
 
     function setUp() public {
         entryPoint = new EntryPoint();
@@ -27,6 +28,8 @@ contract ERC4337CheckerTest is Test {
         vm.deal(address(mockPaymaster), 1 << 128); // give some funds to the mockAccount
         entryPoint.depositTo{value: 1 ether}(address(mockPaymaster));
         mockPaymaster.addStake{value: 2 ether}(1);
+
+        checker = new ERC4337Checker();
     }
 
     function test_validationPass() public {
@@ -43,7 +46,7 @@ contract ERC4337CheckerTest is Test {
         );
 
         assertTrue(
-            ERC4337Checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
+            checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
         );
     }
 
@@ -62,7 +65,7 @@ contract ERC4337CheckerTest is Test {
         userOp.paymasterAndData = abi.encodePacked(mockPaymaster);
 
         assertTrue(
-            ERC4337Checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
+            checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
         );
     }
 
@@ -80,8 +83,11 @@ contract ERC4337CheckerTest is Test {
         );
 
         assertFalse(
-            ERC4337Checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
+            checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
         );
+
+        // output the failure log, can be seen when runnning the test with -vvv
+        checker.printFailureLogs();
     }
 
     function test_outOfGas() public {
@@ -98,8 +104,10 @@ contract ERC4337CheckerTest is Test {
         );
 
         assertFalse(
-            ERC4337Checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
+            checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
         );
+        // output the failure log, can be seen when runnning the test with -vvv
+        checker.printFailureLogs();
     }
 
     function test_accessExtcodeWithContractNoCode() public {
@@ -116,8 +124,10 @@ contract ERC4337CheckerTest is Test {
         );
 
         assertFalse(
-            ERC4337Checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
+            checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
         );
+        // output the failure log, can be seen when runnning the test with -vvv
+        checker.printFailureLogs();
     }
 
     function test_accessUnassociatedStorageSlot() public {
@@ -134,8 +144,10 @@ contract ERC4337CheckerTest is Test {
         );
 
         assertFalse(
-            ERC4337Checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
+            checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
         );
+        // output the failure log, can be seen when runnning the test with -vvv
+        checker.printFailureLogs();
     }
 
     function test_accessPaymasterStorageSlotWithoutStake_shouldfail() public {
@@ -160,8 +172,10 @@ contract ERC4337CheckerTest is Test {
         );
 
         assertFalse(
-            ERC4337Checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
+            checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
         );
+        // output the failure log, can be seen when runnning the test with -vvv
+        checker.printFailureLogs();
     }
 
     function test_validateBundleWithSingleUserOp() public {
@@ -181,7 +195,7 @@ contract ERC4337CheckerTest is Test {
         userOps[0] = userOp;
 
         assertTrue(
-            ERC4337Checker.simulateAndVerifyBundle(vm, userOps, entryPoint)
+            checker.simulateAndVerifyBundle(vm, userOps, entryPoint)
         );
     }
 
@@ -211,7 +225,7 @@ contract ERC4337CheckerTest is Test {
         userOps[1] = userOp2;
 
         assertTrue(
-            ERC4337Checker.simulateAndVerifyBundle(vm, userOps, entryPoint)
+            checker.simulateAndVerifyBundle(vm, userOps, entryPoint)
         );
     }
 
@@ -233,8 +247,10 @@ contract ERC4337CheckerTest is Test {
         userOps[1] = userOp; // duplicated, so storage will conflict
 
         assertFalse(
-            ERC4337Checker.simulateAndVerifyBundle(vm, userOps, entryPoint)
+            checker.simulateAndVerifyBundle(vm, userOps, entryPoint)
         );
+        // output the failure log, can be seen when runnning the test with -vvv
+        checker.printFailureLogs();
     }
 
     function _getUnsignedOp(address target, bytes memory innerCallData) private pure returns (UserOperation memory) {
