@@ -107,13 +107,11 @@ contract ERC4337Checker {
         bool result = true;
 
         // Validate the opcodes and storages for `validateUserOp()`
-        console2.log("Validate the opcodes and storages for `validateUserOp()`...", senderSteps.length);
         if (!validateSteps(senderSteps, userOp, entryPoint)) {
             result = false;
         }
 
         // Validate the opcodes and storages for `validatePaymasterUserOp()`
-        console2.log("Validate the opcodes and storages for `validatePaymasterUserOp()`...", paymasterSteps.length);
         if (!validateSteps(paymasterSteps, userOp, entryPoint)) {
             result = false;
         }
@@ -130,9 +128,7 @@ contract ERC4337Checker {
         UserOperation[] memory userOps,
         EntryPoint entryPoint
     )
-        private
-        pure
-        returns (bool)
+        private        returns (bool)
     {
         StorageSlot[] memory slots = new StorageSlot[](debugSteps.length * userOps.length);
         uint slotsLen = 0;
@@ -160,9 +156,16 @@ contract ERC4337Checker {
                 for (uint k = 0; k < slotsLen; k++) {
                     // check if there is duplicated storage
                     if (slots[k].account == account && slots[k].slot == slot) {
-                        console2.log("userOp has duplicated storage access");
+                        failureLogs.push(FailureLog({
+                            errorMsg: string(abi.encodePacked(
+                                "The bundle have duplicate storage access. Account: [", Strings.toHexString(account),
+                                "], slot: [", Strings.toHexString(uint256(slot)), "]"
+                            )),
+                            contractAddr: debugStep.contractAddr
+                        }));
                         isDuplicated = true;
                         result = false;
+                        break;
                     }
                 }
 
@@ -198,24 +201,18 @@ contract ERC4337Checker {
 
         bool result = true;
         if (!validateForbiddenOpcodes(debugSteps)) {
-            console2.log("Invalid Sender Opcodes");
             result = false;
         }
         if (!validateCall(debugSteps, address(entryPoint), true)) {
-            console2.log("Breaching Call Limitation");
             result = false;
         }
         if (!validateExtcodeMayNotAccessAddressWithoutCode(debugSteps)) {
-            console2.log("EXTCODEHASH, EXTCODELENGTH, EXTCODECOPY may not access address with no code");
             result = false;
         }
         if (!validateCreate2(debugSteps, userOp)) {
-            console2.log("allow at most one CREATE2 opcode call only when op.initcode.length != 0");
             result = false;
         }
-
         if (!validateStorage(debugSteps, userOp, entryPoint)) {
-            console2.log("Storage access rule breached");
             result = false;
         }
 
@@ -272,8 +269,6 @@ contract ERC4337Checker {
             bool isAssociated;
             for (uint256 j = 0; j < associatedSlots.length; j++) {
                 if (key == associatedSlots[j]) {
-                    console2.log("found associated slot on account: ", debugStep.contractAddr);
-                    console2.logBytes32(key);
                     isAssociated = true;
                     break;
                 }
@@ -281,10 +276,6 @@ contract ERC4337Checker {
             if (isAssociated) {
                 continue;
             }
-
-            // console2.log("non-associated slot detected on account: ", debugStep.contractAddr);
-            // console2.logBytes32(key);
-            // console2.log("sender address: ", userOp.sender);
 
             string memory senderAddr = Strings.toHexString(userOp.sender);
 
@@ -354,7 +345,6 @@ contract ERC4337Checker {
             // that failed. It will not go all the way back to the call related opcode so
             // need to call this before filtering
             if (isCallOutOfGas(debugSteps[i])) {
-                console2.log("must not revert with out-of-gas");
                 failureLogs.push(FailureLog({
                     errorMsg: "CALL must not revert with out-of-gas",
                     contractAddr: debugSteps[i].contractAddr
@@ -371,7 +361,6 @@ contract ERC4337Checker {
             }
 
             if (isCallWithValue(debugSteps[i], entryPoint, isFromAccount)) {
-                console2.log("must not use value (except from account to the entrypoint)");
                 failureLogs.push(FailureLog({
                     errorMsg: "CALL must not use value (except from account to the entrypoint)",
                     contractAddr: debugSteps[i].contractAddr
@@ -380,7 +369,6 @@ contract ERC4337Checker {
             }
             if (!isPrecompile(debugSteps[i]) && isCallWithEmptyCode(debugSteps[i])) {
                 address dest = address(uint160(debugSteps[i].stack[1]));
-                console2.log("destination address must have code or be precompile: ", dest, op);
 
                 failureLogs.push(FailureLog({
                     errorMsg: string(abi.encodePacked(
@@ -393,8 +381,6 @@ contract ERC4337Checker {
                 result = false;
             }
             if (isCallToEntryPoint(debugSteps[i], entryPoint)) {
-                console2.log("cannot call EntryPoint methods, except depositTo");
-
                 failureLogs.push(FailureLog({
                     errorMsg: "cannot call EntryPoint methods, except depositTo",
                     contractAddr: debugSteps[i].contractAddr
@@ -526,6 +512,7 @@ contract ERC4337Checker {
         }
 
         // address used for console and console2 for debugging
+        // this is not of the original spec, but just for forge test convinience.
         if (dest == address(0x000000000000000000636F6e736F6c652e6c6f67)) {
             return true;
         }

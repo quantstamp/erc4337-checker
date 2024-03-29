@@ -54,7 +54,6 @@ contract MockAccount is BaseAccount {
         returns (uint256 validationData)
     {
         AttackType attackType = _decodeAttackType(userOp.callData);
-        console2.log("[_validateSignature] decoded attack type: ", uint8(attackType));
         if (attackType == AttackType.FORBIDDEN_OPCODE_BLOCKTIME) {
             // forbidden opcode
             if (block.timestamp < 1) {
