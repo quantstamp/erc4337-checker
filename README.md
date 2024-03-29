@@ -44,6 +44,8 @@ Contract YourTest {
         entryPoint = new EntryPoint();
         mockAccount = new MockAccount(entryPoint);
         vm.deal(address(mockAccount), 1 << 128); // give some funds to the mockAccount
+
+        checker = new ERC4337Checker(); // initiate the checker contract
     }
 
     function testSingleUserOp() public {
@@ -51,28 +53,17 @@ Contract YourTest {
 
         ...skip some codes...
 
-        // this starts the recording of the debug trace that will later be analyzed
-        vm.startDebugTraceRecording();
+        // a single line that will do all the magic!
+        // this function calls `simulateValidation()` and capture the
+        // debugging steps and do the validations!
+        bool result = checker.simulateAndVerifyUserOp(vm, userOp, entryPoint);
 
-        try entryPoint.simulateValidation(userOp) {
-            // the simulateValidation function will always revert.
-            // in this test, we do not really care if it is revert in an expected output or not.
-        } catch (bytes memory reason) {
-            // if not fail with ValidationResult error, it is likely to be something unexpected.
-            if (reason.length < 4 || bytes4(reason) != IEntryPoint.ValidationResult.selector) {
-                revert(string(abi.encodePacked(
-                    "simulateValidation call failed unexpectedly: ", reason
-                )));
-            }
-        }
+        // To debug, this will output all failure logs telling what rules are violated.
+        // To see the logs, please run the test with `forge test -vvv`
+        // you would not need this usually, only needed when the test failed unexpectedly.
+        checker.printFailureLogs();
 
-        // collect the recorded opcodes, stack and memory inputs.
-        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
-
-        // verify that the user operation fulfills the spec's limitation
-        assertTrue(
-            ERC4337Checker.validateUserOp(steps, userOp, entryPoint)
-        );
+        assertTrue(result);
     }
 
 
@@ -84,29 +75,10 @@ Contract YourTest {
         // this starts the recording of the debug trace that will later be analyzed
         vm.startDebugTraceRecording();
 
-        // simulate all userOps
-        for (uint i = 0 ; i < userOps.length ; i++) {
-            UserOperation userOp = userOps[i]
-            try entryPoint.simulateValidation(userOp) {
-                // the simulateValidation function will always revert.
-                // in this test, we do not really care if it is revert in an expected output or not.
-            } catch (bytes memory reason) {
-                // if not fail with ValidationResult error, it is likely to be something unexpected.
-                if (reason.length < 4 || bytes4(reason) != IEntryPoint.ValidationResult.selector) {
-                    revert(string(abi.encodePacked(
-                        "simulateValidation call failed unexpectedly: ", reason
-                    )));
-                }
-            }
-        }
-
-        // collect the recorded opcodes, stack and memory inputs.
-        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
-
-        // Similar to validateUserOp(), but also checks that there is no duplicate
-        // storage slot access across userOps.
+        // just put all your userOps of the bundle in, and this will run the simulation for all the user ops
+        // and check bundle specific rules
         assertTrue(
-            ERC4337Checker.validateBundle(steps, userOp, entryPoint)
+            checker.simulateAndVerifyBundle(vm, userOps, entryPoint)
         );
     }
 }
@@ -150,28 +122,8 @@ contract YourTest {
             signature: userOp.signature
         });
 
-        vm.startDebugTraceRecording();
 
-        // cast IEntryPoint -> EntryPoint
-        try EntryPoint(payable(address(entryPoint))).simulateValidation(aaUserOp) {
-            // the simulateValidation function will always revert.
-            // in this test, we do not really care if it is revert in an expected output or not.
-        } catch (bytes memory reason) {
-            // if not fail with ValidationResult error, it is likely to be something unexpected.
-            //
-            // Using AAIEntryPoint here to avoid collision.
-            if (reason.length < 4 || bytes4(reason) != AAIEntryPoint.ValidationResult.selector) {
-                revert(string(abi.encodePacked("simulateValidation call failed unexpectedly: ", reason)));
-            }
-        }
-
-        // collect the recorded opcodes, stack and memory inputs.
-        Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
-
-        // verify that the user operation fulfills the spec's limitation
-        assertTrue(
-            ERC4337Checker.validateUserOp(steps, aaUserOp, EntryPoint(payable(address(entryPoint))))
-        );
+        assertTrue(checker.simulateAndVerifyUserOp(vm, aaUserOp, entryPoint));
     }
 }
 
