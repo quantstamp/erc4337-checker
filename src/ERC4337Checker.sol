@@ -344,7 +344,7 @@ contract ERC4337Checker {
             // the current mechanism will only record the instruction result on the last opcode
             // that failed. It will not go all the way back to the call related opcode so
             // need to call this before filtering
-            if (isCallOutOfGas(debugSteps[i])) {
+            if (debugSteps[i].isOutOfGas) {
                 failureLogs.push(FailureLog({
                     errorMsg: "CALL must not revert with out-of-gas",
                     contractAddr: debugSteps[i].contractAddr
@@ -492,11 +492,6 @@ contract ERC4337Checker {
         return false;
     }
 
-    function isCallOutOfGas(Vm.DebugStep memory debugStep) private pure returns (bool) {
-        // https://github.com/bluealloy/revm/blob/5a47ae0d2bb0909cc70d1b8ae2b6fc721ab1ca7d/crates/interpreter/src/instruction_result.rs#L23-L27
-        return debugStep.instructionResult >= 0x50 && debugStep.instructionResult <= 0x54;
-    }
-
     function isCallWithEmptyCode(Vm.DebugStep memory debugStep) private view returns (bool) {
         address dest = address(uint160(debugStep.stack[1]));
 
@@ -522,11 +517,11 @@ contract ERC4337Checker {
 
     function isCallToEntryPoint(Vm.DebugStep memory debugStep, address entryPoint) private pure returns (bool) {
         address dest = address(uint160(debugStep.stack[1]));
-        uint8[] memory memoryData = debugStep.memoryData;
+        bytes memory memoryInput = debugStep.memoryInput;
         bytes4 selector;
 
-        if (memoryData.length >= 4) {
-            selector = bytes4(abi.encodePacked(memoryData[0], memoryData[1], memoryData[2], memoryData[3]));
+        if (memoryInput.length >= 4) {
+            selector = bytes4(abi.encodePacked(memoryInput[0], memoryInput[1], memoryInput[2], memoryInput[3]));
         }
 
         // note: the check againts selector != bytes4(0) is not really from the spec, but the BaseAccount will return fund
@@ -630,9 +625,9 @@ contract ERC4337Checker {
             }
 
             // find the inputs for the KECCAK256
-            bytes memory input = new bytes(debugSteps[i].memoryData.length);
-            for (uint256 j = 0; j < debugSteps[i].memoryData.length; j++) {
-                input[j] = bytes1(debugSteps[i].memoryData[j]);
+            bytes memory input = new bytes(debugSteps[i].memoryInput.length);
+            for (uint256 j = 0; j < debugSteps[i].memoryInput.length; j++) {
+                input[j] = bytes1(debugSteps[i].memoryInput[j]);
             }
 
             address inputStartAddr = address(uint160(uint256(bytes32(input))));
