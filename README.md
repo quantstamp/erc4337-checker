@@ -1,34 +1,34 @@
 # ERC4337-Checker
 
-This is a tool to help validate the ERC4337 limitations on forbidden opcodes and accessing disallowed storages. For detail specification, please read: [EIP4337 spec doc](https://eips.ethereum.org/EIPS/eip-4337#specification).
+This is a tool to help validate the ERC4337 limitations on forbidden opcodes and accessing disallowed storage. For detailed specification, please read: [EIP4337 spec doc](https://eips.ethereum.org/EIPS/eip-4337#specification).
 
-This is a library tool and intended to be use as a dependency and import to use in the forge tests.
+This is a library tool intended to be used as a dependency and imported to use in the Forge tests.
+
 The tool is only compatible with the reference implementation of account abstraction: https://github.com/eth-infinitism/account-abstraction/. Currently, this tool is tested with the `v0.6.0` version of the `account-abstraction` repo.
 
-To use this tool, you will need to use a specific forked version of forge.
-1. Git clone from the [forked repo with tag v0.1.0-alpha-4337-tool](https://github.com/quantstamp/foundry/releases/tag/v0.1.0-alpha-4337-tool).
-2. Build the local from the fork:
+To use this tool, you will need to use a Foundry version after `nightly-f79c53c4e41958809ee1f3473466f184bb34c195`, which includes the `startDebugTraceRecording` and `stopDebugTraceRecording` cheatcodes. Running `foundryup` should get you the latest nightly versions that include the cheatcodes.
+
+Also, you will need to use `forge-std` after commit `4f57c59` (see: [link](https://github.com/foundry-rs/forge-std/commit/4f57c59f066a03d13de8c65bb34fca8247f5fcb2)).
+You can install the master branch to get the interface:
 ```sh
-# install Forge
-cargo install --path ./crates/forge --profile local --force --locked
+forge install foundry-rs/forge-std@master
 ```
+(Note: at the time of this README, the latest forge-std version is v1.9.3, which does not include the change yet. However, it is likely that all releases afterward should have it included. If there is a newer release, there is no need to install with the master tag.)
 
-
-Also, you will need to replace the `forge-std` dependency to the following fork: [forked repo with tag v0.1.0-alpha-4337-tool](https://github.com/quantstamp/forge-std/releases/tag/v0.1.0-alpha-4337-tool) in your target repository to use this library.
-
-You can run the following commands to replace the `forge-std`:
-```sh
-forge remove foundry-rs/forge-std
-forge install quantstamp/forge-std@v0.1.0-alpha-4337-tool
-```
-
-
-After the forked `forge` and `forge-std` is setup, you can add this repository to your targe repo:
+After the `forge` and `forge-std` setup, you can add this repository to your target repo:
 ```sh
 forge install quantstamp/erc4337-checker
 ```
 
-Now, you can start writing tests leveraging this ERC4337 checker! The tool support validate on both userOp or bundle level.
+Now, you can start writing tests leveraging this ERC4337 checker! The tool supports validation on both userOp and bundle levels.
+
+After providing the test, **remember to run it with the `-vvv` flag**. The cheatcode implementation requires a "tracer" to be turned on and, unfortunately, there are no other flags to enable the tracer when initiated (see: [PR discussion](https://github.com/foundry-rs/foundry/pull/8571#discussion_r1744059244)) at this time. There might be follow-up efforts to enable new flags, though (see: [comment](https://github.com/foundry-rs/foundry/pull/8571#pullrequestreview-2347884799)).
+
+```sh
+forge test -vvv
+```
+
+### Sample Tests
 
 ```solidity
 import {Vm} from "forge-std/Vm.sol";
@@ -58,7 +58,7 @@ Contract YourTest {
         // debugging steps and do the validations!
         bool result = checker.simulateAndVerifyUserOp(vm, userOp, entryPoint);
 
-        // To debug, this will output all failure logs telling what rules are violated.
+        // (Optional) To debug, this will output all failure logs telling what rules are violated.
         // To see the logs, please run the test with `forge test -vvv`
         // you would not need this usually, only needed when the test failed unexpectedly.
         checker.printFailureLogs();
