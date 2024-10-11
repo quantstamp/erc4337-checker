@@ -1,34 +1,43 @@
-name: test
+name: Test
 
-on: workflow_dispatch
+# Trigger the workflow on push to the main branch and on pull requests
+on:
+  push:
+    branches:
+      - main
+  pull_request:
 
 env:
   FOUNDRY_PROFILE: ci
 
 jobs:
   check:
+    name: Foundry Project
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: true
 
-    name: Foundry project
-    runs-on: ubuntu-latest
     steps:
+      # Checkout the repository, including submodules
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
+      # Install Foundry using the nightly version
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
           version: nightly
 
-      - name: Run Forge build
+      # Display Foundry version and build the project
+      - name: Run Forge Build
         run: |
           forge --version
           forge build --sizes
         id: build
 
-      - name: Run Forge tests
+      # Run Forge tests with verbose logging
+      - name: Run Forge Tests
         run: |
           forge test -vvv
         id: test
