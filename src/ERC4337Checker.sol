@@ -464,7 +464,8 @@ contract ERC4337Checker {
             || opcode == 0x5A // GAS
             || opcode == 0xF0 // CREATE
             || opcode == 0x41 // COINBASE
-            || opcode == 0xFF; // SELFDESTRUCT
+            || opcode == 0xFF // SELFDESTRUCT
+            || opcode == 0xFE; // INVALID
     }
 
     function isValidNextOpcodeOfGas(uint8 nextOpcode) private pure returns (bool) {
