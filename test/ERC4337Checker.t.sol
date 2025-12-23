@@ -90,6 +90,103 @@ contract ERC4337CheckerTest is Test {
         checker.printFailureLogs();
     }
 
+    function test_forbiddenOpCodeGasPrice() public {
+        address mockAccountAddr = address(mockAccount);
+
+        bytes memory encodedCallData = abi.encodeWithSelector(
+            MockAccount.execute.selector,
+            MockAccount.AttackType.FORBIDDEN_OPCODE_GASPRICE
+        );
+
+        UserOperation memory userOp = _getUnsignedOp(
+            mockAccountAddr,
+            encodedCallData
+        );
+
+        assertFalse(
+            checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
+        );
+        checker.printFailureLogs();
+    }
+
+    function test_forbiddenOpCodeGasLimit() public {
+        address mockAccountAddr = address(mockAccount);
+
+        bytes memory encodedCallData = abi.encodeWithSelector(
+            MockAccount.execute.selector,
+            MockAccount.AttackType.FORBIDDEN_OPCODE_GASLIMIT
+        );
+
+        UserOperation memory userOp = _getUnsignedOp(
+            mockAccountAddr,
+            encodedCallData
+        );
+
+        assertFalse(
+            checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
+        );
+        checker.printFailureLogs();
+    }
+
+    function test_forbiddenOpCodeCoinbase() public {
+        address mockAccountAddr = address(mockAccount);
+
+        bytes memory encodedCallData = abi.encodeWithSelector(
+            MockAccount.execute.selector,
+            MockAccount.AttackType.FORBIDDEN_OPCODE_COINBASE
+        );
+
+        UserOperation memory userOp = _getUnsignedOp(
+            mockAccountAddr,
+            encodedCallData
+        );
+
+        assertFalse(
+            checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
+        );
+        checker.printFailureLogs();
+    }
+
+    function test_forbiddenOpCodeOrigin() public {
+        address mockAccountAddr = address(mockAccount);
+
+        bytes memory encodedCallData = abi.encodeWithSelector(
+            MockAccount.execute.selector,
+            MockAccount.AttackType.FORBIDDEN_OPCODE_ORIGIN
+        );
+
+        UserOperation memory userOp = _getUnsignedOp(
+            mockAccountAddr,
+            encodedCallData
+        );
+
+        assertFalse(
+            checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
+        );
+        checker.printFailureLogs();
+    }
+
+    function test_forbiddenOpCodeInvalid() public {
+        address mockAccountAddr = address(mockAccount);
+
+        bytes memory encodedCallData = abi.encodeWithSelector(
+            MockAccount.execute.selector,
+            MockAccount.AttackType.FORBIDDEN_OPCODE_INVALID
+        );
+
+        UserOperation memory userOp = _getUnsignedOp(
+            mockAccountAddr,
+            encodedCallData
+        );
+
+        // The INVALID opcode (0xFE) is executed in a try-catch block
+        // This allows the debug trace to capture it, and the checker should detect it
+        assertFalse(
+            checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
+        );
+        checker.printFailureLogs();
+    }
+
     function test_outOfGas() public {
         address mockAccountAddr = address(mockAccount);
 

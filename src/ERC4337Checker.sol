@@ -456,6 +456,8 @@ contract ERC4337Checker {
             || opcode == 0x44 // DIFFICULTY
             || opcode == 0x42 // TIMESTAMP
             || opcode == 0x48 // BASEFEE
+            || opcode == 0x49 // BLOBHASH
+            || opcode == 0x4A // BLOBBASEFEE
             || opcode == 0x40 // BLOCKHASH
             || opcode == 0x43 // NUMBER
             || opcode == 0x47 // SELFBALANCE
