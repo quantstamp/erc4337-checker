@@ -187,6 +187,25 @@ contract ERC4337CheckerTest is Test {
         checker.printFailureLogs();
     }
 
+    function test_forbiddenOpCodeCreate() public {
+        address mockAccountAddr = address(mockAccount);
+
+        bytes memory encodedCallData = abi.encodeWithSelector(
+            MockAccount.execute.selector,
+            MockAccount.AttackType.FORBIDDEN_OPCODE_CREATE
+        );
+
+        UserOperation memory userOp = _getUnsignedOp(
+            mockAccountAddr,
+            encodedCallData
+        );
+
+        assertFalse(
+            checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
+        );
+        checker.printFailureLogs();
+    }
+
     function test_outOfGas() public {
         address mockAccountAddr = address(mockAccount);
 
