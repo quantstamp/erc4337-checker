@@ -191,7 +191,7 @@ contract ERC4337Checker {
         }
 
         bool result = true;
-        if (!validateForbiddenOpcodes(debugSteps)) {
+        if (!validateForbiddenOpcodes(debugSteps, userOp)) {
             result = false;
         }
         if (!validateCall(debugSteps, address(entryPoint), isFromAccount)) {
@@ -289,11 +289,38 @@ contract ERC4337Checker {
      * May not invokes any forbidden opcodes
      * Must not use GAS opcode (unless followed immediately by one of { CALL, DELEGATECALL, CALLCODE, STATICCALL }.)
      */
-    function validateForbiddenOpcodes(Vm.DebugStep[] memory debugSteps) private returns (bool) {
+    function validateForbiddenOpcodes(Vm.DebugStep[] memory debugSteps, UserOperation memory userOp) private returns (bool) {
         bool result = true;
         for (uint256 i = 0; i < debugSteps.length; i++) {
             uint8 opcode = debugSteps[i].opcode;
             if (isForbiddenOpcode(opcode)) {
+
+                // exception for CREATE opcode
+                if (opcode == 0xF0){
+                    // CREATE is only allowed if factory exists AND sender directly executes it
+                    if(getFactoryAddr(userOp) == address(0)){
+                        failureLogs.push(FailureLog({
+                            errorMsg: string(abi.encodePacked(
+                                "CREATE opcode forbidden: no factory address present"
+                            )),
+                            contractAddr: debugSteps[i].contractAddr
+                        }));
+                        result = false;
+                    } else if (debugSteps[i].contractAddr != userOp.sender) {
+                        // Factory exists, but CREATE must be directly from sender, not utility contract
+                        failureLogs.push(FailureLog({
+                            errorMsg: string(abi.encodePacked(
+                                "CREATE opcode forbidden: only sender can execute it. ",
+                                "Expected: [", Strings.toHexString(userOp.sender), "], ",
+                                "Got: [", Strings.toHexString(debugSteps[i].contractAddr), "]"
+                            )),
+                            contractAddr: debugSteps[i].contractAddr
+                        }));
+                        result = false;
+                    }
+                    continue;
+                }
+
                 // exception case for GAS opcode
                 if (opcode == 0x5A && i < debugSteps.length - 1) {
                     if (!isValidNextOpcodeOfGas(debugSteps[i + 1].opcode)) {
@@ -305,15 +332,16 @@ contract ERC4337Checker {
                         }));
                         result = false;
                     }
-                } else {
-                    failureLogs.push(FailureLog({
-                        errorMsg: string(abi.encodePacked(
-                            "forbidden op-code usage. opcode: [", Strings.toHexString(opcode), "]"
-                        )),
-                        contractAddr: debugSteps[i].contractAddr
-                    }));
-                    result = false;
+                    continue;
                 }
+
+                failureLogs.push(FailureLog({
+                    errorMsg: string(abi.encodePacked(
+                        "forbidden op-code usage. opcode: [", Strings.toHexString(opcode), "]"
+                    )),
+                    contractAddr: debugSteps[i].contractAddr
+                }));
+                result = false;
             }
         }
         return result;
