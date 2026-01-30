@@ -33,10 +33,12 @@ contract MockPaymaster is BasePaymaster {
 
     function _decodeAttackType(bytes calldata paymasterAndData) private pure returns (AttackType) {
         // Convert the value to AttackType enum
-        if (paymasterAndData.length <= 20) {
+        // Format per EIP-4337: [address(20) + verificationGasLimit(16) + postOpGasLimit(16) + paymasterData(variable)]
+        // So paymasterData starts at offset 52
+        if (paymasterAndData.length <= 52) {
             return AttackType.NONE;
         }
-        return abi.decode(paymasterAndData[20:], (AttackType));
+        return abi.decode(paymasterAndData[52:], (AttackType));
     }
 
     function _validateEntryPointInterface(IEntryPoint _entryPoint) internal override {

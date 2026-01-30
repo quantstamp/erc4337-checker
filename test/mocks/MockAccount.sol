@@ -40,7 +40,8 @@ contract MockAccount is BaseAccount {
         FORBIDDEN_OPCODE_GASLIMIT,
         FORBIDDEN_OPCODE_COINBASE,
         FORBIDDEN_OPCODE_ORIGIN,
-        FORBIDDEN_OPCODE_INVALID
+        FORBIDDEN_OPCODE_INVALID,
+        FORBIDDEN_OPCODE_CREATE
     }
 
     IEntryPointSimulations private _entryPoint;
@@ -113,6 +114,10 @@ contract MockAccount is BaseAccount {
                 // The invalid opcode was executed and caught
                 console2.log("Invalid opcode caught in try-catch");
             }
+        } else if (attackType == AttackType.FORBIDDEN_OPCODE_CREATE){
+            address demoAddress = address(new InvalidActions());
+            console2.log("New contract", demoAddress);
+
         }
 
         return 0;

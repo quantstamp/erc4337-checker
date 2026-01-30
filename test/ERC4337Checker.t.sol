@@ -63,7 +63,16 @@ contract ERC4337CheckerTest is Test {
             mockAccountAddr,
             encodedCallData
         );
-        userOp.paymasterAndData = abi.encodePacked(mockPaymaster);
+        // paymasterAndData format per EIP-4337:
+        // - paymasterAddress (20 bytes)
+        // - paymasterVerificationGasLimit (16 bytes)
+        // - postOpGasLimit (16 bytes)
+        // - paymasterData (variable)
+        userOp.paymasterAndData = abi.encodePacked(
+            mockPaymaster,
+            uint128(1_000_000),  // paymasterVerificationGasLimit
+            uint128(1_000_000)   // postOpGasLimit
+        );
 
         assertTrue(
             checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
@@ -188,6 +197,25 @@ contract ERC4337CheckerTest is Test {
         checker.printFailureLogs();
     }
 
+    function test_forbiddenOpCodeCreate() public {
+        address mockAccountAddr = address(mockAccount);
+
+        bytes memory encodedCallData = abi.encodeWithSelector(
+            MockAccount.executeAttack.selector,
+            MockAccount.AttackType.FORBIDDEN_OPCODE_CREATE
+        );
+
+        PackedUserOperation memory userOp = _getUnsignedOp(
+            mockAccountAddr,
+            encodedCallData
+        );
+
+        assertFalse(
+            checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
+        );
+        checker.printFailureLogs();
+    }
+
     function test_outOfGas() public {
         address mockAccountAddr = address(mockAccount);
 
@@ -264,8 +292,11 @@ contract ERC4337CheckerTest is Test {
             mockAccountAddr,
             encodedCallData
         );
+        
         userOp.paymasterAndData = abi.encodePacked(
             noStakePaymaster,
+            uint128(1_000_000),  // paymasterVerificationGasLimit
+            uint128(1_000_000),  // postOpGasLimit
             abi.encode(MockPaymaster.AttackType.UseStorage)
         );
 
