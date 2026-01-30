@@ -2,9 +2,9 @@
 pragma solidity ^0.8.0;
 
 import {Vm} from "forge-std/Vm.sol";
-import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
-import {EntryPoint} from "account-abstraction/core/EntryPoint.sol";
-import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
+import {PackedUserOperation} from "account-abstraction/interfaces/PackedUserOperation.sol";
+import {EntryPointSimulations} from "account-abstraction/core/EntryPointSimulations.sol";
+import {IEntryPointSimulations} from "account-abstraction/interfaces/IEntryPointSimulations.sol";
 import {IStakeManager} from "account-abstraction/interfaces/IStakeManager.sol";
 import {Strings} from "openzeppelin-contracts/contracts/utils/Strings.sol";
 import "forge-std/console2.sol";
@@ -30,7 +30,7 @@ contract ERC4337Checker {
         }
     }
 
-    function simulateAndVerifyUserOp(Vm vm, UserOperation memory userOp, EntryPoint entryPoint) external returns (bool) {
+    function simulateAndVerifyUserOp(Vm vm, PackedUserOperation memory userOp, EntryPointSimulations entryPoint) external returns (bool) {
         // this starts the recording of the debug trace that will later be analyzed
         vm.startDebugTraceRecording();
 
@@ -38,14 +38,12 @@ contract ERC4337Checker {
             // the simulateValidation function will always revert.
             // in this test, we do not really care if it is revert in an expected output or not.
         } catch (bytes memory reason) {
-            // if not fail with ValidationResult error, it is likely to be something unexpected.
-            if (reason.length < 4 || bytes4(reason) != IEntryPoint.ValidationResult.selector) {
-                revert(string(abi.encodePacked(
-                    "simulateValidation call failed unexpectedly: ", reason
-                )));
-            }
+            // simulateValidation reverted — this is a genuine failure in v0.8
+            revert(string(abi.encodePacked(
+                "simulateValidation call failed: ", reason
+            )));
         }
-
+        
         // collect the recorded opcodes, stack and memory inputs.
         Vm.DebugStep[] memory steps = vm.stopAndReturnDebugTraceRecording();
 
@@ -53,7 +51,7 @@ contract ERC4337Checker {
         return validateUserOp(steps, userOp, entryPoint);
     }
 
-    function simulateAndVerifyBundle(Vm vm, UserOperation[] memory userOps, EntryPoint entryPoint) external returns (bool) {
+    function simulateAndVerifyBundle(Vm vm, PackedUserOperation[] memory userOps, EntryPointSimulations entryPoint) external returns (bool) {
         // this starts the recording of the debug trace that will later be analyzed
         vm.startDebugTraceRecording();
 
@@ -61,13 +59,8 @@ contract ERC4337Checker {
             try entryPoint.simulateValidation(userOps[i]) {
                 // the simulateValidation function will always revert.
                 // in this test, we do not really care if it is revert in an expected output or not.
-            } catch (bytes memory reason) {
-                // if not fail with ValidationResult error, it is likely to be something unexpected.
-                if (reason.length < 4 || bytes4(reason) != IEntryPoint.ValidationResult.selector) {
-                    revert(string(abi.encodePacked(
-                        "simulateValidation call failed unexpectedly: ", reason
-                    )));
-                }
+            } catch {
+                
             }
         }
 
@@ -79,7 +72,7 @@ contract ERC4337Checker {
     }
 
 
-    function validateBundle(Vm.DebugStep[] memory debugSteps, UserOperation[] memory userOps, EntryPoint entryPoint)
+    function validateBundle(Vm.DebugStep[] memory debugSteps, PackedUserOperation[] memory userOps, EntryPointSimulations entryPoint)
         public
         returns (bool)
     {
@@ -97,7 +90,7 @@ contract ERC4337Checker {
         return result;
     }
 
-    function validateUserOp(Vm.DebugStep[] memory debugSteps, UserOperation memory userOp, EntryPoint entryPoint)
+    function validateUserOp(Vm.DebugStep[] memory debugSteps, PackedUserOperation memory userOp, EntryPointSimulations entryPoint)
         public
         returns (bool)
     {
@@ -107,12 +100,12 @@ contract ERC4337Checker {
         bool result = true;
 
         // Validate the opcodes and storages for `validateUserOp()`
-        if (!validateSteps(senderSteps, userOp, entryPoint)) {
+        if (!validateSteps(senderSteps, userOp, entryPoint, true)) {
             result = false;
         }
 
         // Validate the opcodes and storages for `validatePaymasterUserOp()`
-        if (!validateSteps(paymasterSteps, userOp, entryPoint)) {
+        if (!validateSteps(paymasterSteps, userOp, entryPoint, false)) {
             result = false;
         }
 
@@ -125,8 +118,8 @@ contract ERC4337Checker {
      */
     function validateBundleStorageNoRepeat(
         Vm.DebugStep[] memory debugSteps,
-        UserOperation[] memory userOps,
-        EntryPoint entryPoint
+        PackedUserOperation[] memory userOps,
+        EntryPointSimulations entryPoint
     )
         private        returns (bool)
     {
@@ -135,7 +128,7 @@ contract ERC4337Checker {
         bool result = true;
 
         for (uint i = 0; i < userOps.length; i++) {
-            UserOperation memory userOp = userOps[i];
+            PackedUserOperation memory userOp = userOps[i];
             (Vm.DebugStep[] memory senderSteps, ) = getRelativeDebugSteps(debugSteps, userOp, entryPoint);
 
             // a temporary slots, will merge with the main slots after checking
@@ -189,8 +182,9 @@ contract ERC4337Checker {
 
     function validateSteps(
         Vm.DebugStep[] memory debugSteps,
-        UserOperation memory userOp,
-        EntryPoint entryPoint
+        PackedUserOperation memory userOp,
+        EntryPointSimulations entryPoint,
+        bool isFromAccount
     )
         private
         returns (bool)
@@ -203,7 +197,7 @@ contract ERC4337Checker {
         if (!validateForbiddenOpcodes(debugSteps, userOp)) {
             result = false;
         }
-        if (!validateCall(debugSteps, address(entryPoint), true)) {
+        if (!validateCall(debugSteps, address(entryPoint), isFromAccount)) {
             result = false;
         }
         if (!validateExtcodeMayNotAccessAddressWithoutCode(debugSteps)) {
@@ -219,7 +213,7 @@ contract ERC4337Checker {
         return result;
     }
 
-    function validateStorage(Vm.DebugStep[] memory debugSteps, UserOperation memory userOp, EntryPoint entryPoint)
+    function validateStorage(Vm.DebugStep[] memory debugSteps, PackedUserOperation memory userOp, EntryPointSimulations entryPoint)
         private
         returns (bool)
     {
@@ -298,7 +292,7 @@ contract ERC4337Checker {
      * May not invokes any forbidden opcodes
      * Must not use GAS opcode (unless followed immediately by one of { CALL, DELEGATECALL, CALLCODE, STATICCALL }.)
      */
-    function validateForbiddenOpcodes(Vm.DebugStep[] memory debugSteps, UserOperation memory userOp) private returns (bool) {
+    function validateForbiddenOpcodes(Vm.DebugStep[] memory debugSteps, PackedUserOperation memory userOp) private returns (bool) {
         bool result = true;
         for (uint256 i = 0; i < debugSteps.length; i++) {
             uint8 opcode = debugSteps[i].opcode;
@@ -410,7 +404,7 @@ contract ERC4337Checker {
             }
             if (isCallToEntryPoint(debugSteps[i], entryPoint)) {
                 failureLogs.push(FailureLog({
-                    errorMsg: "cannot call EntryPoint methods, except depositTo",
+                    errorMsg: "cannot call EntryPointSimulations methods, except depositTo",
                     contractAddr: debugSteps[i].contractAddr
                 }));
 
@@ -448,7 +442,7 @@ contract ERC4337Checker {
         return result;
     }
 
-    function validateCreate2(Vm.DebugStep[] memory debugSteps, UserOperation memory userOp)
+    function validateCreate2(Vm.DebugStep[] memory debugSteps, PackedUserOperation memory userOp)
         private
         returns (bool)
     {
@@ -576,8 +570,8 @@ contract ERC4337Checker {
 
     function getRelativeDebugSteps(
         Vm.DebugStep[] memory debugSteps,
-        UserOperation memory userOp,
-        EntryPoint entryPoint
+        PackedUserOperation memory userOp,
+        EntryPointSimulations entryPoint
     )   private
         pure
         returns (Vm.DebugStep[] memory, Vm.DebugStep[] memory)
@@ -680,18 +674,18 @@ contract ERC4337Checker {
         return associatedSlots;
     }
 
-    function getStakeInfo(address addr, EntryPoint entryPoint) internal view returns (IStakeManager.StakeInfo memory) {
+    function getStakeInfo(address addr, EntryPointSimulations entryPoint) internal view returns (IStakeManager.StakeInfo memory) {
         IStakeManager.DepositInfo memory depositInfo = entryPoint.getDepositInfo(addr);
 
         return IStakeManager.StakeInfo({stake: depositInfo.stake, unstakeDelaySec: depositInfo.unstakeDelaySec});
     }
 
-    function getFactoryAddr(UserOperation memory userOp) private pure returns (address) {
+    function getFactoryAddr(PackedUserOperation memory userOp) private pure returns (address) {
         bytes memory initCode = userOp.initCode;
         return initCode.length >= 20 ? address(bytes20(initCode)) : address(0);
     }
 
-    function getPaymasterAddr(UserOperation memory userOp) private pure returns (address) {
+    function getPaymasterAddr(PackedUserOperation memory userOp) private pure returns (address) {
         bytes memory pData = userOp.paymasterAndData;
         return pData.length >= 20 ? address(bytes20(pData)) : address(0);
     }

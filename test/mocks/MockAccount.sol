@@ -2,11 +2,11 @@
 pragma solidity ^0.8.0;
 
 import {BaseAccount} from "account-abstraction/core/BaseAccount.sol";
-import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
+import {PackedUserOperation} from "account-abstraction/interfaces/PackedUserOperation.sol";
+import {IEntryPointSimulations} from "account-abstraction/interfaces/IEntryPointSimulations.sol";
 import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
 
 import "forge-std/console2.sol";
-
 
 contract InvalidActions {
     uint invalidSlotAccess;
@@ -44,10 +44,10 @@ contract MockAccount is BaseAccount {
         FORBIDDEN_OPCODE_CREATE
     }
 
-    IEntryPoint private _entryPoint;
+    IEntryPointSimulations private _entryPoint;
     InvalidActions private invalidActions;
 
-    constructor(IEntryPoint entryPoint_) {
+    constructor(IEntryPointSimulations entryPoint_) {
         _entryPoint = entryPoint_;
         invalidActions = new InvalidActions();
     }
@@ -56,11 +56,11 @@ contract MockAccount is BaseAccount {
         return _entryPoint;
     }
 
-    function execute(AttackType /*attackType*/) external pure {
+    function executeAttack(AttackType /*attackType*/) external pure {
         console2.log("dummy execute");
     }
 
-    function _validateSignature(UserOperation calldata userOp, bytes32 /*userOpHash*/)
+    function _validateSignature(PackedUserOperation calldata userOp, bytes32 /*userOpHash*/)
         internal
         virtual
         override
@@ -127,7 +127,7 @@ contract MockAccount is BaseAccount {
         // Ensure the data is long enough to contain both the function selector and the enum argument
         require(callData.length >= 4 + 32, "Invalid encodedCallData length");
 
-        require(bytes4(callData[:4]) == this.execute.selector, "Invalid function selector");
+        require(bytes4(callData[:4]) == this.executeAttack.selector, "Invalid function selector");
 
         // Convert the value to AttackType enum
         return AttackType(uint256(bytes32(callData[4:])));
