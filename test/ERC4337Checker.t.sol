@@ -3,9 +3,9 @@ pragma solidity ^0.8.13;
 
 import {Test, console2} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {EntryPoint} from "account-abstraction/core/EntryPoint.sol";
-import {IEntryPoint} from "account-abstraction/interfaces/IEntryPoint.sol";
-import {UserOperation} from "account-abstraction/interfaces/UserOperation.sol";
+import {EntryPointSimulations} from "account-abstraction/core/EntryPointSimulations.sol";
+import {IEntryPointSimulations} from "account-abstraction/interfaces/IEntryPointSimulations.sol";
+import {PackedUserOperation} from "account-abstraction/interfaces/PackedUserOperation.sol";
 
 import {ERC4337Checker} from "../src/ERC4337Checker.sol";
 
@@ -13,20 +13,21 @@ import {MockAccount} from "./mocks/MockAccount.sol";
 import {MockPaymaster} from "./mocks/MockPaymaster.sol";
 
 contract ERC4337CheckerTest is Test {
-    EntryPoint public entryPoint;
+    EntryPointSimulations public entryPoint;
     MockAccount public mockAccount;
     MockPaymaster public mockPaymaster;
     ERC4337Checker public checker;
 
     function setUp() public {
-        entryPoint = new EntryPoint();
+        entryPoint = new EntryPointSimulations();
 
         mockAccount = new MockAccount(entryPoint);
         vm.deal(address(mockAccount), 1 << 128); // give some funds to the mockAccount
 
-        mockPaymaster = new MockPaymaster(IEntryPoint(entryPoint));
+        mockPaymaster = new MockPaymaster(entryPoint);
         vm.deal(address(mockPaymaster), 1 << 128); // give some funds to the mockAccount
         entryPoint.depositTo{value: 1 ether}(address(mockPaymaster));
+        entryPoint.depositTo{value: 1 ether}(address(mockAccount));
         mockPaymaster.addStake{value: 2 ether}(1);
 
         checker = new ERC4337Checker();
@@ -36,15 +37,15 @@ contract ERC4337CheckerTest is Test {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
-            MockAccount.execute.selector,
+            MockAccount.executeAttack.selector,
             MockAccount.AttackType.NONE
         );
 
-        UserOperation memory userOp = _getUnsignedOp(
+        PackedUserOperation memory userOp = _getUnsignedOp(
             mockAccountAddr,
             encodedCallData
         );
-
+        
         assertTrue(
             checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
         );
@@ -54,15 +55,24 @@ contract ERC4337CheckerTest is Test {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
-            MockAccount.execute.selector,
+            MockAccount.executeAttack.selector,
             MockAccount.AttackType.NONE
         );
 
-        UserOperation memory userOp = _getUnsignedOp(
+        PackedUserOperation memory userOp = _getUnsignedOp(
             mockAccountAddr,
             encodedCallData
         );
-        userOp.paymasterAndData = abi.encodePacked(mockPaymaster);
+        // paymasterAndData format per EIP-4337:
+        // - paymasterAddress (20 bytes)
+        // - paymasterVerificationGasLimit (16 bytes)
+        // - postOpGasLimit (16 bytes)
+        // - paymasterData (variable)
+        userOp.paymasterAndData = abi.encodePacked(
+            mockPaymaster,
+            uint128(1_000_000),  // paymasterVerificationGasLimit
+            uint128(1_000_000)   // postOpGasLimit
+        );
 
         assertTrue(
             checker.simulateAndVerifyUserOp(vm, userOp, entryPoint)
@@ -73,11 +83,11 @@ contract ERC4337CheckerTest is Test {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
-            MockAccount.execute.selector,
+            MockAccount.executeAttack.selector,
             MockAccount.AttackType.FORBIDDEN_OPCODE_BLOCKTIME
         );
 
-        UserOperation memory userOp = _getUnsignedOp(
+        PackedUserOperation memory userOp = _getUnsignedOp(
             mockAccountAddr,
             encodedCallData
         );
@@ -94,11 +104,11 @@ contract ERC4337CheckerTest is Test {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
-            MockAccount.execute.selector,
+            MockAccount.executeAttack.selector,
             MockAccount.AttackType.FORBIDDEN_OPCODE_GASPRICE
         );
 
-        UserOperation memory userOp = _getUnsignedOp(
+        PackedUserOperation memory userOp = _getUnsignedOp(
             mockAccountAddr,
             encodedCallData
         );
@@ -113,11 +123,11 @@ contract ERC4337CheckerTest is Test {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
-            MockAccount.execute.selector,
+            MockAccount.executeAttack.selector,
             MockAccount.AttackType.FORBIDDEN_OPCODE_GASLIMIT
         );
 
-        UserOperation memory userOp = _getUnsignedOp(
+        PackedUserOperation memory userOp = _getUnsignedOp(
             mockAccountAddr,
             encodedCallData
         );
@@ -132,11 +142,11 @@ contract ERC4337CheckerTest is Test {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
-            MockAccount.execute.selector,
+            MockAccount.executeAttack.selector,
             MockAccount.AttackType.FORBIDDEN_OPCODE_COINBASE
         );
 
-        UserOperation memory userOp = _getUnsignedOp(
+        PackedUserOperation memory userOp = _getUnsignedOp(
             mockAccountAddr,
             encodedCallData
         );
@@ -151,11 +161,11 @@ contract ERC4337CheckerTest is Test {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
-            MockAccount.execute.selector,
+            MockAccount.executeAttack.selector,
             MockAccount.AttackType.FORBIDDEN_OPCODE_ORIGIN
         );
 
-        UserOperation memory userOp = _getUnsignedOp(
+        PackedUserOperation memory userOp = _getUnsignedOp(
             mockAccountAddr,
             encodedCallData
         );
@@ -170,11 +180,11 @@ contract ERC4337CheckerTest is Test {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
-            MockAccount.execute.selector,
+            MockAccount.executeAttack.selector,
             MockAccount.AttackType.FORBIDDEN_OPCODE_INVALID
         );
 
-        UserOperation memory userOp = _getUnsignedOp(
+        PackedUserOperation memory userOp = _getUnsignedOp(
             mockAccountAddr,
             encodedCallData
         );
@@ -191,11 +201,11 @@ contract ERC4337CheckerTest is Test {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
-            MockAccount.execute.selector,
+            MockAccount.executeAttack.selector,
             MockAccount.AttackType.FORBIDDEN_OPCODE_CREATE
         );
 
-        UserOperation memory userOp = _getUnsignedOp(
+        PackedUserOperation memory userOp = _getUnsignedOp(
             mockAccountAddr,
             encodedCallData
         );
@@ -210,11 +220,11 @@ contract ERC4337CheckerTest is Test {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
-            MockAccount.execute.selector,
+            MockAccount.executeAttack.selector,
             MockAccount.AttackType.OUT_OF_GAS
         );
 
-        UserOperation memory userOp = _getUnsignedOp(
+        PackedUserOperation memory userOp = _getUnsignedOp(
             mockAccountAddr,
             encodedCallData
         );
@@ -230,11 +240,11 @@ contract ERC4337CheckerTest is Test {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
-            MockAccount.execute.selector,
+            MockAccount.executeAttack.selector,
             MockAccount.AttackType.ACCESS_EXTCODE_WITH_ADDRESS_NO_CODE
         );
 
-        UserOperation memory userOp = _getUnsignedOp(
+        PackedUserOperation memory userOp = _getUnsignedOp(
             mockAccountAddr,
             encodedCallData
         );
@@ -250,11 +260,11 @@ contract ERC4337CheckerTest is Test {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
-            MockAccount.execute.selector,
+            MockAccount.executeAttack.selector,
             MockAccount.AttackType.TOUCH_UNASSOCIATED_STORAGE_SLOT
         );
 
-        UserOperation memory userOp = _getUnsignedOp(
+        PackedUserOperation memory userOp = _getUnsignedOp(
             mockAccountAddr,
             encodedCallData
         );
@@ -269,21 +279,24 @@ contract ERC4337CheckerTest is Test {
     function test_accessPaymasterStorageSlotWithoutStake_shouldfail() public {
         address mockAccountAddr = address(mockAccount);
 
-        MockPaymaster noStakePaymaster = new MockPaymaster(IEntryPoint(entryPoint));
+        MockPaymaster noStakePaymaster = new MockPaymaster(entryPoint);
         vm.deal(address(noStakePaymaster), 1 << 128); // give some funds to the mockAccount
         entryPoint.depositTo{value: 1 ether}(address(noStakePaymaster));
 
         bytes memory encodedCallData = abi.encodeWithSelector(
-            MockAccount.execute.selector,
+            MockAccount.executeAttack.selector,
             MockAccount.AttackType.NONE
         );
 
-        UserOperation memory userOp = _getUnsignedOp(
+        PackedUserOperation memory userOp = _getUnsignedOp(
             mockAccountAddr,
             encodedCallData
         );
+        
         userOp.paymasterAndData = abi.encodePacked(
             noStakePaymaster,
+            uint128(1_000_000),  // paymasterVerificationGasLimit
+            uint128(1_000_000),  // postOpGasLimit
             abi.encode(MockPaymaster.AttackType.UseStorage)
         );
 
@@ -298,16 +311,16 @@ contract ERC4337CheckerTest is Test {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
-            MockAccount.execute.selector,
+            MockAccount.executeAttack.selector,
             MockAccount.AttackType.NONE
         );
 
-        UserOperation memory userOp = _getUnsignedOp(
+        PackedUserOperation memory userOp = _getUnsignedOp(
             mockAccountAddr,
             encodedCallData
         );
 
-        UserOperation[] memory userOps = new UserOperation[](1);
+        PackedUserOperation[] memory userOps = new PackedUserOperation[](1);
         userOps[0] = userOp;
 
         assertTrue(
@@ -319,24 +332,24 @@ contract ERC4337CheckerTest is Test {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
-            MockAccount.execute.selector,
+            MockAccount.executeAttack.selector,
             MockAccount.AttackType.NONE
         );
 
-        UserOperation memory userOp1 = _getUnsignedOp(
+        PackedUserOperation memory userOp1 = _getUnsignedOp(
             mockAccountAddr,
             encodedCallData
         );
 
         address mockAccount2Addr = address(new MockAccount(entryPoint));
         vm.deal(address(mockAccount2Addr), 1 << 128);
-        UserOperation memory userOp2 = _getUnsignedOp(
+        PackedUserOperation memory userOp2 = _getUnsignedOp(
             mockAccount2Addr,
             encodedCallData
         );
 
 
-        UserOperation[] memory userOps = new UserOperation[](2);
+        PackedUserOperation[] memory userOps = new PackedUserOperation[](2);
         userOps[0] = userOp1;
         userOps[1] = userOp2;
 
@@ -349,16 +362,16 @@ contract ERC4337CheckerTest is Test {
         address mockAccountAddr = address(mockAccount);
 
         bytes memory encodedCallData = abi.encodeWithSelector(
-            MockAccount.execute.selector,
+            MockAccount.executeAttack.selector,
             MockAccount.AttackType.NONE
         );
 
-        UserOperation memory userOp = _getUnsignedOp(
+        PackedUserOperation memory userOp = _getUnsignedOp(
             mockAccountAddr,
             encodedCallData
         );
 
-        UserOperation[] memory userOps = new UserOperation[](2);
+        PackedUserOperation[] memory userOps = new PackedUserOperation[](2);
         userOps[0] = userOp;
         userOps[1] = userOp; // duplicated, so storage will conflict
 
@@ -369,17 +382,15 @@ contract ERC4337CheckerTest is Test {
         checker.printFailureLogs();
     }
 
-    function _getUnsignedOp(address target, bytes memory innerCallData) private pure returns (UserOperation memory) {
-        return UserOperation({
+    function _getUnsignedOp(address target, bytes memory innerCallData) private pure returns (PackedUserOperation memory) {
+        return PackedUserOperation({
             sender: target,
             nonce: 0, // Adjust nonce as required
             initCode: "",
             callData: innerCallData,
-            callGasLimit: 1 << 24,
-            verificationGasLimit: 1 << 24,
+            accountGasLimits: bytes32((uint256(5_000_000) << 128) | uint256(30_000_000)),
             preVerificationGas: 1 << 24,
-            maxFeePerGas: 1 << 8,
-            maxPriorityFeePerGas: 1 << 8,
+            gasFees: bytes32((uint256(5_000_000) << 128) | uint256(30_000_000)),
             paymasterAndData: "",
             signature: ""
         });
