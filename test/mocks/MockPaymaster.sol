@@ -42,7 +42,8 @@ contract MockPaymaster is BasePaymaster {
     }
 
     function _validateEntryPointInterface(IEntryPoint _entryPoint) internal override {
-        // Skip validation for testing
+        // EntryPointSimulations doesn't satisfy BasePaymaster's IEntryPoint interface check,
+        // so we skip validation for testing purposes.
     }
 }
 

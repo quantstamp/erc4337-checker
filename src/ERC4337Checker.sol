@@ -59,8 +59,11 @@ contract ERC4337Checker {
             try entryPoint.simulateValidation(userOps[i]) {
                 // the simulateValidation function will always revert.
                 // in this test, we do not really care if it is revert in an expected output or not.
-            } catch {
-                
+            } catch (bytes memory reason) {
+                // simulateValidation reverted — this is a genuine failure in v0.8
+                revert(string(abi.encodePacked(
+                    "simulateValidation call failed: ", reason
+                )));
             }
         }
 
